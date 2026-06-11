@@ -174,6 +174,7 @@ export function buildAcceptedProducerUpdate(
     producerDecision,
     draftCaption: producerDecision.caption,
     producerValidationIssues,
+    factCheck: null,
     factCheckStatus: "PENDING",
     factCheckIssues: [],
     factCheckClaims: [],

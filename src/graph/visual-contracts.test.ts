@@ -92,6 +92,20 @@ expectThrows("empty allowed implications", () =>
 expectThrows("empty forbidden implications", () =>
   parseFactCheckOutput({ ...validOutput, visualImplicationsForbidden: [] })
 );
+expectThrows("REVISE without actionable feedback", () =>
+  parseFactCheckOutput({
+    ...validOutput,
+    status: "REVISE",
+    issues: [],
+    revisionFeedback: null,
+  })
+);
+expectThrows("PASS with revision feedback", () =>
+  parseFactCheckOutput({
+    ...validOutput,
+    revisionFeedback: "This contradicts PASS.",
+  })
+);
 
 const unsupportedPass = parseFactCheckOutput({
   ...validOutput,
@@ -105,10 +119,18 @@ const unsupportedPass = parseFactCheckOutput({
   ],
 });
 if (
-  normalizeFactCheckOutput(unsupportedPass, [suppliedUrl], 0).status !==
-  "REVISE"
+  normalizeFactCheckOutput(unsupportedPass, [suppliedUrl], 0).status !== "REVISE"
 ) {
   throw new Error("PASS with an unsupported claim must become REVISE");
+}
+if (
+  !normalizeFactCheckOutput(
+    unsupportedPass,
+    [suppliedUrl],
+    0
+  ).revisionFeedback
+) {
+  throw new Error("A downgraded PASS must include actionable revision feedback");
 }
 if (
   normalizeFactCheckOutput(unsupportedPass, [suppliedUrl], 1).status !==
@@ -168,6 +190,10 @@ expectThrows(
 assertVisualRequestAllowed(
   "SPECULATION",
   "Player in current clothing with a symbolic backdrop"
+);
+assertVisualRequestAllowed(
+  "INTEREST",
+  "Do not show a destination kit; keep the player in current clothing"
 );
 expectThrows(
   "explicit CONFIRMED restriction",

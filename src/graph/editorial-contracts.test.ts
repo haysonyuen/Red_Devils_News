@@ -281,12 +281,16 @@ const initialProducerUpdate = buildAcceptedProducerUpdate(
   state({
     revisionFeedback: null,
     revisionCount: 0,
+    factCheck,
   }),
   producer,
   []
 );
 if (initialProducerUpdate.revisionCount !== 0) {
   throw new Error("An initial Producer pass should not increment revisionCount");
+}
+if (initialProducerUpdate.factCheck !== null) {
+  throw new Error("A Producer update should clear the previous grouped fact check");
 }
 
 const rescoutDecision: ProducerOutput = {

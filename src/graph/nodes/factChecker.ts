@@ -158,7 +158,7 @@ export function parseFactCheckOutput(value: unknown): FactCheckOutput {
     throw new Error("Fact checker output is invalid");
   }
 
-  return {
+  const output: FactCheckOutput = {
     status: value.status as FactCheckOutput["status"],
     storyStatus: value.storyStatus as StoryStatus,
     claimChecks: value.claimChecks.map(parseClaimCheck),
@@ -175,6 +175,19 @@ export function parseFactCheckOutput(value: unknown): FactCheckOutput {
     issues: parseStringArray(value.issues, "issues", true),
     revisionFeedback: value.revisionFeedback,
   };
+
+  if (
+    output.status === "REVISE" &&
+    output.issues.length === 0 &&
+    output.revisionFeedback === null
+  ) {
+    throw new Error("Fact checker REVISE output requires actionable feedback");
+  }
+  if (output.status === "PASS" && output.revisionFeedback !== null) {
+    throw new Error("Fact checker PASS output cannot include revision feedback");
+  }
+
+  return output;
 }
 
 export function normalizeFactCheckOutput(
@@ -205,8 +218,17 @@ export function normalizeFactCheckOutput(
     requestedStatus === "REVISE" && revisionCount >= 1
       ? "REJECT"
       : requestedStatus;
+  const revisionFeedback =
+    status === "REVISE"
+      ? output.revisionFeedback ||
+        output.issues[0] ||
+        `Remove or qualify unsupported claims: ${claimChecks
+          .filter((check) => check.verdict === "UNSUPPORTED")
+          .map((check) => check.claim)
+          .join("; ")}`
+      : null;
 
-  return { ...output, status, claimChecks };
+  return { ...output, status, claimChecks, revisionFeedback };
 }
 
 export function prepareFactCheckerHandoff(state: PipelineState): {
