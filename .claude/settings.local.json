@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(node -r dotenv/config -e \"console.log\\(process.argv\\)\" dist/index.js --run-now)",
+      "Bash(node -e \"console.log\\(process.argv\\)\" --run-now)"
+    ]
+  }
+}
