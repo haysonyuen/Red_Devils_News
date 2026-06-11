@@ -1,4 +1,18 @@
 import { Annotation } from "@langchain/langgraph";
+import {
+  ApprovedReference,
+  CandidateEvaluation,
+  ClaimCheck,
+  FactCheckOutput,
+  GeneratedCandidate,
+  GenerationRequest,
+  ProducerOutput,
+  ReferenceRequest,
+  StorySelection,
+  VisualBrief,
+} from "./contracts";
+
+export type { ClaimCheck } from "./contracts";
 
 // ── Raw hit returned by the MCP search tool ──────────────────────────────────
 export interface SearchResult {
@@ -31,13 +45,6 @@ export interface ScoutBrief {
   confidence: number;
 }
 
-export interface ClaimCheck {
-  claim: string;
-  verdict: "SUPPORTED" | "UNSUPPORTED" | "OPINION";
-  evidence: string;
-  sourceUrl: string | null;
-}
-
 // ── Core pipeline state ───────────────────────────────────────────────────────
 export const PipelineStateAnnotation = Annotation.Root({
   runId: Annotation<string>({
@@ -55,6 +62,58 @@ export const PipelineStateAnnotation = Annotation.Root({
   filteredArticles: Annotation<ArticleContent[]>({
     reducer: (_, next) => next,
     default: () => [],
+  }),
+  storySelection: Annotation<StorySelection | null>({
+    reducer: (_, next) => next,
+    default: () => null,
+  }),
+  producerDecision: Annotation<ProducerOutput | null>({
+    reducer: (_, next) => next,
+    default: () => null,
+  }),
+  producerRejectionCount: Annotation<number>({
+    reducer: (_, next) => next,
+    default: () => 0,
+  }),
+  rejectedStoryUrls: Annotation<string[]>({
+    reducer: (_, next) => next,
+    default: () => [],
+  }),
+  factCheck: Annotation<FactCheckOutput | null>({
+    reducer: (_, next) => next,
+    default: () => null,
+  }),
+  visualBrief: Annotation<VisualBrief | null>({
+    reducer: (_, next) => next,
+    default: () => null,
+  }),
+  referenceRequests: Annotation<ReferenceRequest[]>({
+    reducer: (_, next) => next,
+    default: () => [],
+  }),
+  referenceApprovals: Annotation<ApprovedReference[]>({
+    reducer: (_, next) => next,
+    default: () => [],
+  }),
+  generationRequest: Annotation<GenerationRequest | null>({
+    reducer: (_, next) => next,
+    default: () => null,
+  }),
+  generatedCandidates: Annotation<GeneratedCandidate[]>({
+    reducer: (_, next) => next,
+    default: () => [],
+  }),
+  selectedCandidate: Annotation<GeneratedCandidate | null>({
+    reducer: (_, next) => next,
+    default: () => null,
+  }),
+  visualEvaluation: Annotation<CandidateEvaluation | null>({
+    reducer: (_, next) => next,
+    default: () => null,
+  }),
+  visualRegenerationCount: Annotation<number>({
+    reducer: (_, next) => next,
+    default: () => 0,
   }),
   scoutBrief: Annotation<ScoutBrief | null>({
     reducer: (_, next) => next,
