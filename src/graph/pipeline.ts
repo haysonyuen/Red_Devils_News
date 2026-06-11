@@ -5,6 +5,7 @@ import { ingestNode } from "./nodes/ingest";
 import { scoutNode } from "./nodes/scout";
 import { producerNode } from "./nodes/producer";
 import { factCheckerNode } from "./nodes/factChecker";
+import { visualBriefNode } from "./nodes/visualProducer";
 import { imageGenNode } from "./nodes/imageGen";
 import { slackGatewayNode } from "./nodes/slackGateway";
 import { publishNode } from "./nodes/publish";
@@ -42,12 +43,24 @@ export function routeAfterProducer(
 
 export function routeAfterFactCheck(
   state: typeof PipelineStateAnnotation.State
-): "producer" | "imageGen" | "__end__" {
+): "producer" | "visualBrief" | "imageGen" | "__end__" {
+  if (state.factCheck?.status === "PASS") return "visualBrief";
   const status = state.factCheck?.status ?? state.factCheckStatus;
-  if (status === "PASS") return "imageGen";
+  // Preserve the legacy status-only path while grouped fact checks migrate.
+  if (!state.factCheck && status === "PASS") return "imageGen";
   if (status === "REVISE" && state.revisionCount < 1) {
     return "producer";
   }
+  return "__end__";
+}
+
+export function routeAfterVisualBrief(
+  state: typeof PipelineStateAnnotation.State
+): "imageGen" | "__end__" {
+  if (state.visualBrief?.compositionMode === "CONCEPTUAL") {
+    return "imageGen";
+  }
+  // Task 6 replaces this end with the reference request stage.
   return "__end__";
 }
 
@@ -72,6 +85,7 @@ export function buildPipeline(checkpointer: SqliteSaver) {
     .addNode("scout", scoutNode)
     .addNode("producer", producerNode)
     .addNode("factChecker", factCheckerNode)
+    .addNode("visualBrief", visualBriefNode)
     .addNode("imageGen", imageGenNode)
     .addNode("slackGateway", slackGatewayNode)
     .addNode("publish", publishNode)
@@ -92,6 +106,11 @@ export function buildPipeline(checkpointer: SqliteSaver) {
     })
     .addConditionalEdges("factChecker", routeAfterFactCheck, {
       producer: "producer",
+      visualBrief: "visualBrief",
+      imageGen: "imageGen",
+      __end__: END,
+    })
+    .addConditionalEdges("visualBrief", routeAfterVisualBrief, {
       imageGen: "imageGen",
       __end__: END,
     })
