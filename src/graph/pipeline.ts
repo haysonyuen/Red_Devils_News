@@ -15,22 +15,29 @@ function routeAfterIngest(
   return state.filteredArticles.length > 0 ? "scout" : "__end__";
 }
 
-function routeAfterScout(
+export function routeAfterScout(
   state: typeof PipelineStateAnnotation.State
 ): "producer" | "__end__" {
-  return state.scoutBrief ? "producer" : "__end__";
+  return state.storySelection?.decision === "SELECT" ? "producer" : "__end__";
 }
 
 export function routeAfterProducer(
   state: typeof PipelineStateAnnotation.State
-): "producer" | "factChecker" | "__end__" {
-  if (!state.editorialBrief || !state.draftCaption || !state.imagePrompt) {
+): "scout" | "factChecker" | "__end__" {
+  const decision = state.producerDecision;
+  if (!decision) return "__end__";
+
+  if (decision.decision === "REJECT_AND_RESCOUT") {
+    return state.producerRejectionCount === 1 ? "scout" : "__end__";
+  }
+  if (decision.decision === "REJECT_AND_END") {
     return "__end__";
   }
-  if (state.producerValidationIssues.length > 0) {
-    return state.revisionCount < 1 ? "producer" : "__end__";
-  }
-  return "factChecker";
+  return state.draftCaption &&
+    decision.facts.length > 0 &&
+    state.producerValidationIssues.length === 0
+    ? "factChecker"
+    : "__end__";
 }
 
 export function routeAfterFactCheck(
@@ -78,7 +85,7 @@ export function buildPipeline(checkpointer: SqliteSaver) {
       __end__: END,
     })
     .addConditionalEdges("producer", routeAfterProducer, {
-      producer: "producer",
+      scout: "scout",
       factChecker: "factChecker",
       __end__: END,
     })
