@@ -31,6 +31,7 @@ case "${1:-}" in
     node dist/mcp/server.test.js
     node dist/graph/agents.test.js
     node dist/graph/editorial-contracts.test.js
+    node dist/graph/visual-contracts.test.js
     node dist/evals/persona.test.js
     ;;
   *)
