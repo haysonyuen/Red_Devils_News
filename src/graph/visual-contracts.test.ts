@@ -196,6 +196,24 @@ assertVisualRequestAllowed(
   "Do not show a destination kit; keep the player in current clothing"
 );
 expectThrows(
+  "unrelated negation must not hide destination kit",
+  () =>
+    assertVisualRequestAllowed(
+      "INTEREST",
+      "No logos; show the player in a destination kit"
+    ),
+  "destination kit"
+);
+expectThrows(
+  "one negated concept must not hide another",
+  () =>
+    assertVisualRequestAllowed(
+      "INTEREST",
+      "No destination kit; create a completed signing photo"
+    ),
+  "completed signing"
+);
+expectThrows(
   "explicit CONFIRMED restriction",
   () =>
     assertVisualRequestAllowed(
