@@ -214,6 +214,15 @@ expectThrows(
   "completed signing"
 );
 expectThrows(
+  "negated occurrence must not hide later literal occurrence",
+  () =>
+    assertVisualRequestAllowed(
+      "INTEREST",
+      "Avoid destination kit and include destination kit"
+    ),
+  "destination kit"
+);
+expectThrows(
   "explicit CONFIRMED restriction",
   () =>
     assertVisualRequestAllowed(
