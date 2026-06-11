@@ -43,8 +43,9 @@ export function routeAfterProducer(
 export function routeAfterFactCheck(
   state: typeof PipelineStateAnnotation.State
 ): "producer" | "imageGen" | "__end__" {
-  if (state.factCheckStatus === "PASS") return "imageGen";
-  if (state.factCheckStatus === "REVISE" && state.revisionCount < 1) {
+  const status = state.factCheck?.status ?? state.factCheckStatus;
+  if (status === "PASS") return "imageGen";
+  if (status === "REVISE" && state.revisionCount < 1) {
     return "producer";
   }
   return "__end__";

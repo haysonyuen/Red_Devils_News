@@ -1,4 +1,3 @@
-import { parseFactCheckResult } from "./nodes/factChecker";
 import {
   routeAfterFactCheck,
   routeAfterImage,
@@ -16,20 +15,6 @@ if (canonicalizeUrl(url) !== canonicalizeUrl(cleanUrl)) {
 if (mapToSuppliedUrl(cleanUrl, [url]) !== url) {
   throw new Error("Canonical citation should map back to the supplied RSS URL");
 }
-
-parseFactCheckResult({
-  status: "PASS",
-  claim_checks: [
-    {
-      claim: "A supported claim",
-      verdict: "SUPPORTED",
-      evidence: "The source states the claim.",
-      sourceUrl: url,
-    },
-  ],
-  issues: [],
-  revision_feedback: null,
-});
 
 function route(
   factCheckStatus: "PASS" | "REVISE" | "REJECT",
