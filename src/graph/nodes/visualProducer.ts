@@ -6,6 +6,7 @@ import {
 import { PipelineState } from "../state";
 import { callLlmJson } from "../../llm/client";
 import { loadPrompt } from "../../prompts/load";
+import { assertVisualRequestAllowed } from "../../visual/certainty";
 
 const VISUAL_BRIEF_KEYS = [
   "storyHook",
@@ -291,12 +292,69 @@ export function prepareVisualBriefInput(state: PipelineState): {
     story: {
       primaryStory: state.storySelection.primaryStory,
       mainCharacters: state.storySelection.mainCharacters,
-      storyStatus: state.storySelection.storyStatus,
+      storyStatus: state.factCheck.storyStatus,
     },
     claims: state.factCheck.claimChecks,
     allowedImplications: state.factCheck.visualImplicationsAllowed,
     forbiddenImplications: state.factCheck.visualImplicationsForbidden,
   };
+}
+
+type VisualBriefInput = ReturnType<typeof prepareVisualBriefInput>;
+
+function normalizedText(value: string): string {
+  return value.toLocaleLowerCase().replace(/\s+/g, " ").trim();
+}
+
+function requestsEmbeddedTextOrBranding(value: string): boolean {
+  return /\b(?:add|include|show|display|render|with|featuring)\b[^.;,!?\n]*\b(?:text|logo|logos|crest|badge|watermark)\b/i.test(
+    value
+  );
+}
+
+export function validateVisualBriefAgainstInput(
+  brief: VisualBrief,
+  input: VisualBriefInput
+): void {
+  const suppliedCharacters = new Set(
+    input.story.mainCharacters.map(normalizedText)
+  );
+  const cast = [
+    ...(brief.primaryCharacter ? [brief.primaryCharacter] : []),
+    ...brief.secondaryCharacters,
+  ];
+
+  for (const person of cast) {
+    if (!suppliedCharacters.has(normalizedText(person))) {
+      throw new Error(`Visual brief invented a cast member: ${person}`);
+    }
+  }
+
+  for (const prompt of [
+    brief.generationPromptTemplate,
+    brief.conceptualFallbackPrompt,
+  ]) {
+    assertVisualRequestAllowed(
+      input.story.storyStatus,
+      prompt,
+      input.forbiddenImplications
+    );
+    if (requestsEmbeddedTextOrBranding(prompt)) {
+      throw new Error("Visual brief cannot request embedded text or branding");
+    }
+  }
+
+  for (const person of input.story.mainCharacters) {
+    if (
+      normalizedText(brief.conceptualFallbackPrompt).includes(
+        normalizedText(person)
+      )
+    ) {
+      throw new Error(
+        "Conceptual fallback cannot depict a recognizable supplied person"
+      );
+    }
+  }
 }
 
 export async function createVisualBrief(
@@ -320,6 +378,7 @@ export async function createVisualBrief(
   ) {
     throw new Error("Visual brief must copy forbidden implications exactly");
   }
+  validateVisualBriefAgainstInput(brief, input);
 
   return brief;
 }

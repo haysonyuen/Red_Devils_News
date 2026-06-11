@@ -10,6 +10,7 @@ import {
 import {
   parseVisualBrief,
   prepareVisualBriefInput,
+  validateVisualBriefAgainstInput,
   visualBriefNode,
 } from "./nodes/visualProducer";
 import { PipelineStateAnnotation } from "./state";
@@ -433,7 +434,7 @@ const selectedStory = {
 };
 const visualInput = prepareVisualBriefInput(
   state({
-    storySelection: selectedStory,
+    storySelection: { ...selectedStory, storyStatus: "SPECULATION" },
     producerDecision: acceptedProducer,
     draftCaption: acceptedProducer.caption,
     factCheck: validOutput,
@@ -445,6 +446,52 @@ if (
 ) {
   throw new Error("Visual Producer input should copy forbidden implications");
 }
+if (visualInput.story.storyStatus !== validOutput.storyStatus) {
+  throw new Error("Visual Producer must use the Fact Checker's reconciled status");
+}
+validateVisualBriefAgainstInput(singlePlayerBrief, visualInput);
+expectThrows("invented cast member", () =>
+  validateVisualBriefAgainstInput(
+    {
+      ...singlePlayerBrief,
+      primaryCharacter: "Invented Player",
+      referenceRequirements: [
+        { person: "Invented Player", role: "PRIMARY", required: true },
+      ],
+    },
+    visualInput
+  )
+);
+expectThrows("forbidden implication in generation prompt", () =>
+  validateVisualBriefAgainstInput(
+    {
+      ...singlePlayerBrief,
+      generationPromptTemplate:
+        "Player One celebrates a completed signing; no text or logos",
+    },
+    visualInput
+  )
+);
+expectThrows("recognizable person in conceptual fallback", () =>
+  validateVisualBriefAgainstInput(
+    {
+      ...singlePlayerBrief,
+      conceptualFallbackPrompt:
+        "Player One waits under generic football floodlights; no text or logos",
+    },
+    visualInput
+  )
+);
+expectThrows("requested embedded text", () =>
+  validateVisualBriefAgainstInput(
+    {
+      ...singlePlayerBrief,
+      generationPromptTemplate:
+        "Player One with bold breaking-news text across the image",
+    },
+    visualInput
+  )
+);
 
 if (
   routeAfterVisualBrief(state({ visualBrief: conceptualBrief })) !== "imageGen"
