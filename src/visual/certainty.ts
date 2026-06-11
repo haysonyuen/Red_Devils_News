@@ -26,27 +26,18 @@ function normalize(value: string): string {
 }
 
 function containsConcept(text: string, concept: string): boolean {
-  const textTokens = normalize(text).split(" ").filter(Boolean);
-  const conceptTokens = normalize(concept).split(" ").filter(Boolean);
-  if (conceptTokens.length === 0) return false;
+  const normalizedConcept = normalize(concept);
+  if (!normalizedConcept) return false;
 
-  for (let index = 0; index <= textTokens.length - conceptTokens.length; index++) {
-    const matches = conceptTokens.every(
-      (token, offset) => textTokens[index + offset] === token
+  for (const rawClause of text.split(/[.;,!?\n]+/)) {
+    const clause = normalize(rawClause);
+    if (!` ${clause} `.includes(` ${normalizedConcept} `)) continue;
+
+    const escaped = normalizedConcept.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const negated = new RegExp(
+      `\\b(?:do not|dont|never|without|avoid|no)\\s+(?:(?:show|depict|include|use|wear)\\s+)?(?:(?:a|an|the)\\s+)?${escaped}\\b`
     );
-    if (!matches) continue;
-
-    const prefix = textTokens.slice(Math.max(0, index - 4), index);
-    if (
-      prefix.includes("no") ||
-      prefix.includes("not") ||
-      prefix.includes("without") ||
-      prefix.includes("avoid") ||
-      prefix.includes("never")
-    ) {
-      continue;
-    }
-    return true;
+    if (!negated.test(clause)) return true;
   }
 
   return false;
