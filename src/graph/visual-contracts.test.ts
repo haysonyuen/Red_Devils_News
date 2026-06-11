@@ -1,9 +1,17 @@
-import { FactCheckOutput } from "./contracts";
+import { FactCheckOutput, VisualBrief } from "./contracts";
 import {
   normalizeFactCheckOutput,
   parseFactCheckOutput,
 } from "./nodes/factChecker";
-import { routeAfterFactCheck } from "./pipeline";
+import {
+  routeAfterFactCheck,
+  routeAfterVisualBrief,
+} from "./pipeline";
+import {
+  parseVisualBrief,
+  prepareVisualBriefInput,
+  visualBriefNode,
+} from "./nodes/visualProducer";
 import { PipelineStateAnnotation } from "./state";
 import { assertVisualRequestAllowed } from "../visual/certainty";
 
@@ -240,9 +248,9 @@ expectThrows(
 if (
   routeAfterFactCheck(
     state({ factCheck: validOutput, factCheckStatus: "REJECT", revisionCount: 0 })
-  ) !== "imageGen"
+  ) !== "visualBrief"
 ) {
-  throw new Error("Grouped PASS should route to image generation");
+  throw new Error("Grouped PASS should route to Visual Producer");
 }
 if (
   routeAfterFactCheck(
@@ -275,4 +283,203 @@ if (
   throw new Error("Grouped REJECT should end");
 }
 
-console.log("Visual contract tests passed");
+const singlePlayerBrief: VisualBrief = {
+  storyHook: "United retain an interest in Player One",
+  emotionalGoal: "Measured anticipation",
+  primaryCharacter: "Player One",
+  secondaryCharacters: [],
+  compositionMode: "PRIMARY_WITH_BACKGROUND",
+  requiredSignals: ["Current club clothing", "Symbolic Manchester backdrop"],
+  forbiddenImplications: [...validOutput.visualImplicationsForbidden],
+  referenceRequirements: [
+    { person: "Player One", role: "PRIMARY", required: true },
+  ],
+  searchInstructions: [
+    "Search the current club official site first for a recent portrait",
+  ],
+  generationPromptTemplate:
+    "Portrait of Player One in current club clothing with a symbolic Manchester backdrop; no text or logos",
+  conceptualFallbackPrompt:
+    "A floodlit Manchester football scene suggesting measured anticipation; no text or logos",
+  referenceWarning: null,
+};
+
+const parsedSingle = parseVisualBrief(singlePlayerBrief);
+if (
+  parsedSingle.compositionMode !== "PRIMARY_WITH_BACKGROUND" ||
+  parsedSingle.primaryCharacter !== "Player One"
+) {
+  throw new Error("A single-player brief should parse with a primary");
+}
+if (
+  JSON.stringify(parsedSingle.forbiddenImplications) !==
+  JSON.stringify(validOutput.visualImplicationsForbidden)
+) {
+  throw new Error("Forbidden implications should be preserved exactly");
+}
+
+const twoPersonBrief: VisualBrief = {
+  ...singlePlayerBrief,
+  primaryCharacter: "Player One",
+  secondaryCharacters: ["Player Two"],
+  compositionMode: "PRIMARY_WITH_SECONDARIES",
+  referenceRequirements: [
+    { person: "Player One", role: "PRIMARY", required: true },
+    { person: "Player Two", role: "SECONDARY", required: true },
+  ],
+  generationPromptTemplate:
+    "Mobile-first composition with Player One dominant and Player Two clearly secondary; no text or logos",
+};
+parseVisualBrief(twoPersonBrief);
+
+const conceptualBrief: VisualBrief = {
+  ...singlePlayerBrief,
+  primaryCharacter: null,
+  secondaryCharacters: [],
+  compositionMode: "CONCEPTUAL",
+  referenceRequirements: [],
+  generationPromptTemplate:
+    "A symbolic Manchester football scene expressing measured anticipation; no text or logos",
+};
+parseVisualBrief(conceptualBrief);
+
+expectThrows("missing separate secondary reference", () =>
+  parseVisualBrief({
+    ...twoPersonBrief,
+    referenceRequirements: [twoPersonBrief.referenceRequirements[0]],
+  })
+);
+expectThrows("duplicate cast person", () =>
+  parseVisualBrief({
+    ...twoPersonBrief,
+    secondaryCharacters: ["Player One"],
+  })
+);
+expectThrows("duplicate reference person", () =>
+  parseVisualBrief({
+    ...twoPersonBrief,
+    referenceRequirements: [
+      ...twoPersonBrief.referenceRequirements,
+      { person: "Player Two", role: "SECONDARY", required: true },
+    ],
+  })
+);
+expectThrows("URL in generation template", () =>
+  parseVisualBrief({
+    ...singlePlayerBrief,
+    generationPromptTemplate:
+      "Use https://example.com/player.jpg for Player One; no text or logos",
+  })
+);
+expectThrows("mismatched primary role", () =>
+  parseVisualBrief({
+    ...singlePlayerBrief,
+    referenceRequirements: [
+      { person: "Player One", role: "SECONDARY", required: true },
+    ],
+  })
+);
+expectThrows("conceptual brief with references", () =>
+  parseVisualBrief({
+    ...conceptualBrief,
+    referenceRequirements: [
+      { person: "Player One", role: "PRIMARY", required: true },
+    ],
+  })
+);
+expectThrows("large cast without warning", () =>
+  parseVisualBrief({
+    ...twoPersonBrief,
+    secondaryCharacters: ["Player Two", "Player Three", "Player Four"],
+    referenceRequirements: [
+      { person: "Player One", role: "PRIMARY", required: true },
+      { person: "Player Two", role: "SECONDARY", required: true },
+      { person: "Player Three", role: "SECONDARY", required: true },
+      { person: "Player Four", role: "SECONDARY", required: true },
+    ],
+  })
+);
+parseVisualBrief({
+  ...twoPersonBrief,
+  secondaryCharacters: ["Player Two", "Player Three", "Player Four"],
+  referenceRequirements: [
+    { person: "Player One", role: "PRIMARY", required: true },
+    { person: "Player Two", role: "SECONDARY", required: true },
+    { person: "Player Three", role: "SECONDARY", required: true },
+    { person: "Player Four", role: "SECONDARY", required: true },
+  ],
+  referenceWarning:
+    "Four recognizable people require separate approved references.",
+});
+
+const acceptedProducer = {
+  decision: "ACCEPT" as const,
+  decisionReason: "The story is supported",
+  angle: "Measured interest",
+  facts: [{ claim: "United retain an interest", sourceUrl: suppliedUrl }],
+  supporterOpinion: "Worth monitoring",
+  caption: "United retain an interest in Player One.",
+  headlineOptions: ["United retain interest"],
+};
+const selectedStory = {
+  decision: "SELECT" as const,
+  primaryStory: "United retain an interest in Player One",
+  supportingSourceUrls: [suppliedUrl],
+  mainCharacters: ["Player One"],
+  storyStatus: "INTEREST" as const,
+  visualPotential: 80,
+  selectionReason: "Strong supporter interest",
+  confidence: 0.9,
+};
+const visualInput = prepareVisualBriefInput(
+  state({
+    storySelection: selectedStory,
+    producerDecision: acceptedProducer,
+    draftCaption: acceptedProducer.caption,
+    factCheck: validOutput,
+  })
+);
+if (
+  JSON.stringify(visualInput.forbiddenImplications) !==
+  JSON.stringify(validOutput.visualImplicationsForbidden)
+) {
+  throw new Error("Visual Producer input should copy forbidden implications");
+}
+
+if (
+  routeAfterVisualBrief(state({ visualBrief: conceptualBrief })) !== "imageGen"
+) {
+  throw new Error("Conceptual briefs should preserve the legacy image path");
+}
+if (
+  routeAfterVisualBrief(state({ visualBrief: singlePlayerBrief })) !== "__end__"
+) {
+  throw new Error("People briefs should end until Task 6 adds references");
+}
+
+async function testVisualBriefNodePrecondition(): Promise<void> {
+  const update = await visualBriefNode(
+    state({
+      storySelection: selectedStory,
+      producerDecision: acceptedProducer,
+      draftCaption: acceptedProducer.caption,
+      factCheck: { ...validOutput, status: "REVISE" },
+      errorLog: [],
+    })
+  );
+  if (
+    update.visualBrief !== null ||
+    !update.errorLog?.some((entry) => entry.includes("[visualProducer]"))
+  ) {
+    throw new Error(
+      "Visual Producer precondition errors should clear the brief and log the failure"
+    );
+  }
+}
+
+testVisualBriefNodePrecondition()
+  .then(() => console.log("Visual contract tests passed"))
+  .catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
