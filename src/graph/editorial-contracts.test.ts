@@ -269,12 +269,12 @@ if (
 const revisionUpdate = buildAcceptedProducerUpdate(
   state({
     revisionFeedback: "Clarify the transfer status.",
-    revisionCount: 4,
+    revisionCount: 0,
   }),
   producer,
   []
 );
-if (revisionUpdate.revisionCount !== 5) {
+if (revisionUpdate.revisionCount !== 1) {
   throw new Error("A Producer revision should increment revisionCount once");
 }
 const initialProducerUpdate = buildAcceptedProducerUpdate(
@@ -345,6 +345,8 @@ const rescoutUpdate = buildProducerRejectionUpdate(
   rescoutDecision
 );
 const expectedRescoutReset = {
+  storySelection: null,
+  scoutBrief: null,
   revisionFeedback: null,
   factCheck: null,
   factCheckStatus: "PENDING",

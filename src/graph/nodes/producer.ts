@@ -210,6 +210,8 @@ export function buildProducerRejectionUpdate(
 
   return {
     ...update,
+    storySelection: null,
+    scoutBrief: null,
     factCheck: null,
     visualBrief: null,
     referenceRequests: [],
