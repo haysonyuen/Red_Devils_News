@@ -1,10 +1,7 @@
-import { parseScoutBrief } from "./nodes/scout";
-import { parseProducerDraft } from "./nodes/producer";
 import { parseFactCheckResult } from "./nodes/factChecker";
 import {
   routeAfterFactCheck,
   routeAfterImage,
-  routeAfterProducer,
 } from "./pipeline";
 import { PipelineStateAnnotation } from "./state";
 import { canonicalizeUrl, mapToSuppliedUrl } from "../validation/url";
@@ -19,20 +16,6 @@ if (canonicalizeUrl(url) !== canonicalizeUrl(cleanUrl)) {
 if (mapToSuppliedUrl(cleanUrl, [url]) !== url) {
   throw new Error("Canonical citation should map back to the supplied RSS URL");
 }
-
-parseScoutBrief({
-  selectedArticleUrls: [url],
-  selectionReason: "Current and consequential",
-  confidence: 0.9,
-});
-
-parseProducerDraft({
-  narrative: "A supported narrative",
-  facts: [{ claim: "A supported claim", sourceUrl: url }],
-  context: "Relevant context",
-  caption: "A grounded caption",
-  image_prompt: "A photorealistic football scene",
-});
 
 parseFactCheckResult({
   status: "PASS",
@@ -69,28 +52,6 @@ if (route("REVISE", 1) !== "__end__") {
 }
 if (route("REJECT", 0) !== "__end__") {
   throw new Error("REJECT should end the run");
-}
-if (
-  routeAfterProducer({
-    editorialBrief: { narrative: "n", context: "c", facts: [] },
-    draftCaption: "caption",
-    imagePrompt: "prompt",
-    producerValidationIssues: ["voice issue"],
-    revisionCount: 0,
-  } as unknown as typeof PipelineStateAnnotation.State) !== "producer"
-) {
-  throw new Error("First deterministic validation failure should revise");
-}
-if (
-  routeAfterProducer({
-    editorialBrief: { narrative: "n", context: "c", facts: [] },
-    draftCaption: "caption",
-    imagePrompt: "prompt",
-    producerValidationIssues: ["voice issue"],
-    revisionCount: 1,
-  } as unknown as typeof PipelineStateAnnotation.State) !== "__end__"
-) {
-  throw new Error("Repeated deterministic validation failure should end");
 }
 if (
   routeAfterImage({

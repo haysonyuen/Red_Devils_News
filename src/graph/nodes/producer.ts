@@ -1,24 +1,34 @@
-import { EditorialBrief, PipelineState } from "../state";
+import { ProducerDecision, ProducerOutput } from "../contracts";
+import { PipelineState } from "../state";
 import { callLlmJson } from "../../llm/client";
 import { loadPrompt } from "../../prompts/load";
 import { validateCaption } from "../../validation/caption";
 import { mapToSuppliedUrl } from "../../validation/url";
-import { validateImagePrompt } from "../../validation/imagePrompt";
 
-interface ProducerDraft extends EditorialBrief {
-  caption: string;
-  image_prompt: string;
-}
+const PRODUCER_DECISIONS: ProducerDecision[] = [
+  "ACCEPT",
+  "REJECT_AND_RESCOUT",
+  "REJECT_AND_END",
+];
 
 const PRODUCER_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["narrative", "facts", "context", "caption", "image_prompt"],
+  required: [
+    "decision",
+    "decisionReason",
+    "angle",
+    "facts",
+    "supporterOpinion",
+    "caption",
+    "headlineOptions",
+  ],
   properties: {
-    narrative: { type: "string" },
+    decision: { type: "string", enum: PRODUCER_DECISIONS },
+    decisionReason: { type: "string" },
+    angle: { type: ["string", "null"] },
     facts: {
       type: "array",
-      minItems: 1,
       items: {
         type: "object",
         additionalProperties: false,
@@ -29,123 +39,199 @@ const PRODUCER_SCHEMA = {
         },
       },
     },
-    context: { type: "string" },
-    caption: { type: "string" },
-    image_prompt: { type: "string" },
+    supporterOpinion: { type: ["string", "null"] },
+    caption: { type: ["string", "null"] },
+    headlineOptions: {
+      type: "array",
+      maxItems: 3,
+      items: { type: "string" },
+    },
   },
 };
 
-export function parseProducerDraft(value: unknown): ProducerDraft {
+const PRODUCER_OUTPUT_KEYS = [
+  "decision",
+  "decisionReason",
+  "angle",
+  "facts",
+  "supporterOpinion",
+  "caption",
+  "headlineOptions",
+].sort();
+
+function hasExactKeys(value: Record<string, unknown>, expected: string[]): boolean {
+  return Object.keys(value).sort().join("\0") === expected.join("\0");
+}
+
+function parseNullableString(value: unknown, fieldName: string): string | null {
+  if (value === null) return null;
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`Producer output has invalid ${fieldName}`);
+  }
+  return value.trim();
+}
+
+export function parseProducerOutput(value: unknown): ProducerOutput {
   if (typeof value !== "object" || value === null) {
     throw new Error("Producer output is not an object");
   }
 
-  const draft = value as Record<string, unknown>;
+  const output = value as Record<string, unknown>;
+  if (!hasExactKeys(output, PRODUCER_OUTPUT_KEYS)) {
+    throw new Error("Producer output has unexpected or missing fields");
+  }
+  if (!PRODUCER_DECISIONS.includes(output.decision as ProducerDecision)) {
+    throw new Error("Producer output has an invalid decision");
+  }
   if (
-    typeof draft.narrative !== "string" ||
-    typeof draft.context !== "string" ||
-    typeof draft.caption !== "string" ||
-    typeof draft.image_prompt !== "string" ||
-    !Array.isArray(draft.facts) ||
-    draft.facts.length === 0
+    typeof output.decisionReason !== "string" ||
+    output.decisionReason.trim().length === 0
   ) {
-    throw new Error("Producer output is missing required fields");
+    throw new Error("Producer output requires a concrete decisionReason");
+  }
+  if (!Array.isArray(output.facts)) {
+    throw new Error("Producer output has invalid facts");
   }
 
-  const facts = draft.facts.map((fact) => {
+  const facts = output.facts.map((fact) => {
     if (
       typeof fact !== "object" ||
       fact === null ||
+      !hasExactKeys(fact as Record<string, unknown>, ["claim", "sourceUrl"]) ||
       typeof (fact as Record<string, unknown>).claim !== "string" ||
-      typeof (fact as Record<string, unknown>).sourceUrl !== "string"
+      (fact as Record<string, string>).claim.trim().length === 0 ||
+      typeof (fact as Record<string, unknown>).sourceUrl !== "string" ||
+      (fact as Record<string, string>).sourceUrl.trim().length === 0
     ) {
       throw new Error("Producer output contains an invalid fact");
     }
-    return fact as { claim: string; sourceUrl: string };
+    return {
+      claim: (fact as Record<string, string>).claim.trim(),
+      sourceUrl: (fact as Record<string, string>).sourceUrl.trim(),
+    };
   });
 
+  if (
+    !Array.isArray(output.headlineOptions) ||
+    output.headlineOptions.some(
+      (headline) => typeof headline !== "string" || headline.trim().length === 0
+    )
+  ) {
+    throw new Error("Producer output has invalid headlineOptions");
+  }
+
+  const decision = output.decision as ProducerDecision;
+  const angle = parseNullableString(output.angle, "angle");
+  const supporterOpinion = parseNullableString(
+    output.supporterOpinion,
+    "supporterOpinion"
+  );
+  const caption = parseNullableString(output.caption, "caption");
+  const headlineOptions = output.headlineOptions.map((headline) =>
+    (headline as string).trim()
+  );
+
+  if (decision === "ACCEPT") {
+    if (
+      angle === null ||
+      supporterOpinion === null ||
+      caption === null ||
+      facts.length === 0 ||
+      headlineOptions.length < 1 ||
+      headlineOptions.length > 3
+    ) {
+      throw new Error("Producer ACCEPT output is incomplete");
+    }
+  } else if (
+    angle !== null ||
+    supporterOpinion !== null ||
+    caption !== null ||
+    facts.length !== 0 ||
+    headlineOptions.length !== 0
+  ) {
+    throw new Error("Producer rejection output is contradictory");
+  }
+
   return {
-    narrative: draft.narrative.trim(),
-    context: draft.context.trim(),
+    decision,
+    decisionReason: output.decisionReason.trim(),
+    angle,
     facts,
-    caption: draft.caption.trim(),
-    image_prompt: draft.image_prompt.trim(),
+    supporterOpinion,
+    caption,
+    headlineOptions,
   };
 }
 
 export async function producerNode(
   state: PipelineState
 ): Promise<Partial<PipelineState>> {
-  if (!state.scoutBrief) {
-    return { errorLog: ["[producer] No scout brief was available"] };
+  if (!state.storySelection || state.storySelection.decision !== "SELECT") {
+    return {
+      producerDecision: null,
+      draftCaption: null,
+      producerValidationIssues: [],
+      errorLog: ["[producer] No selected story was available"],
+    };
   }
 
-  const selectedUrls = new Set(state.scoutBrief.selectedArticleUrls);
+  const selectedUrls = state.storySelection.supportingSourceUrls;
   const articles = state.filteredArticles
-    .filter((article) => selectedUrls.has(article.url))
+    .filter((article) => mapToSuppliedUrl(article.url, selectedUrls) !== null)
     .map((article) => ({
       title: article.title,
       source: article.source,
       url: article.url,
       bodyText: article.bodyText.slice(0, 8_000),
     }));
-  const isRevision = Boolean(state.revisionFeedback);
 
-  console.log(
-    `[producer] ${isRevision ? "Revising" : "Creating"} post from ${articles.length} article(s)`
-  );
+  console.log(`[producer] Reviewing ${articles.length} selected article(s)`);
 
   try {
     const response = await callLlmJson(
-      loadPrompt("producer.v1.md"),
+      loadPrompt("producer.v2.md"),
       JSON.stringify({
-        scoutBrief: state.scoutBrief,
+        storySelection: state.storySelection,
         articles,
         revisionFeedback: state.revisionFeedback,
       }),
       {
         model: process.env.LLM_PRODUCER_MODEL,
-        schemaName: "producer_draft",
+        schemaName: "producer_output",
         schema: PRODUCER_SCHEMA,
       }
     );
 
-    const draft = parseProducerDraft(response);
-    const suppliedUrls = [...selectedUrls];
-    const facts = draft.facts.map((fact) => ({
-      ...fact,
-      sourceUrl: mapToSuppliedUrl(fact.sourceUrl, suppliedUrls),
-    }));
-    if (facts.some((fact) => fact.sourceUrl === null)) {
-      throw new Error("Producer cited a URL that the Scout did not select");
+    const parsed = parseProducerOutput(response);
+    const facts = parsed.facts.map((fact) => {
+      const sourceUrl = mapToSuppliedUrl(fact.sourceUrl, selectedUrls);
+      if (!sourceUrl) {
+        throw new Error("Producer cited a URL that the Scout did not select");
+      }
+      return { ...fact, sourceUrl };
+    });
+    const producerDecision = { ...parsed, facts };
+
+    if (producerDecision.decision !== "ACCEPT") {
+      return {
+        producerDecision,
+        producerRejectionCount: state.producerRejectionCount + 1,
+        rejectedStoryUrls: [
+          ...new Set([...state.rejectedStoryUrls, ...selectedUrls]),
+        ],
+        draftCaption: null,
+        producerValidationIssues: [],
+      };
     }
 
-    const producerValidationIssues = [
-      ...validateCaption(
-        draft.caption,
-        articles.map((article) => article.bodyText)
-      ),
-      ...validateImagePrompt(draft.image_prompt),
-    ];
-    const nextRevisionCount = isRevision
-      ? state.revisionCount + 1
-      : state.revisionCount;
-
-    console.log(`[producer] Drafted caption (${draft.caption.length} chars)`);
-    if (producerValidationIssues.length > 0) {
-      console.warn(
-        `[producer] ${producerValidationIssues.length} deterministic validation issue(s)`
-      );
-    }
+    const producerValidationIssues = validateCaption(
+      producerDecision.caption as string,
+      articles.map((article) => article.bodyText)
+    );
 
     return {
-      editorialBrief: {
-        narrative: draft.narrative,
-        facts: facts as Array<{ claim: string; sourceUrl: string }>,
-        context: draft.context,
-      },
-      draftCaption: draft.caption,
-      imagePrompt: draft.image_prompt,
+      producerDecision,
+      draftCaption: producerDecision.caption,
       producerValidationIssues,
       factCheckStatus: "PENDING",
       factCheckIssues: [],
@@ -154,15 +240,13 @@ export async function producerNode(
         producerValidationIssues.length > 0
           ? producerValidationIssues.join(" ")
           : null,
-      revisionCount: nextRevisionCount,
     };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[producer] Failed: ${msg}`);
     return {
-      editorialBrief: null,
+      producerDecision: null,
       draftCaption: null,
-      imagePrompt: null,
       producerValidationIssues: [],
       errorLog: [`[producer] ${msg}`],
     };
