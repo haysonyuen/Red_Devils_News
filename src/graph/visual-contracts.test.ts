@@ -222,6 +222,10 @@ expectThrows(
     ),
   "destination kit"
 );
+assertVisualRequestAllowed(
+  "INTEREST",
+  "A biomedical update beside a destination kitchen"
+);
 expectThrows(
   "explicit CONFIRMED restriction",
   () =>
