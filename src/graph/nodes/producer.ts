@@ -163,6 +163,75 @@ export function parseProducerOutput(value: unknown): ProducerOutput {
   };
 }
 
+export function buildAcceptedProducerUpdate(
+  state: PipelineState,
+  producerDecision: ProducerOutput,
+  producerValidationIssues: string[]
+): Partial<PipelineState> {
+  const isRevision = state.revisionFeedback !== null;
+
+  return {
+    producerDecision,
+    draftCaption: producerDecision.caption,
+    producerValidationIssues,
+    factCheckStatus: "PENDING",
+    factCheckIssues: [],
+    factCheckClaims: [],
+    revisionFeedback:
+      producerValidationIssues.length > 0
+        ? producerValidationIssues.join(" ")
+        : null,
+    revisionCount: isRevision
+      ? state.revisionCount + 1
+      : state.revisionCount,
+  };
+}
+
+export function buildProducerRejectionUpdate(
+  state: PipelineState,
+  producerDecision: ProducerOutput
+): Partial<PipelineState> {
+  const update: Partial<PipelineState> = {
+    producerDecision,
+    producerRejectionCount: state.producerRejectionCount + 1,
+    rejectedStoryUrls: [
+      ...new Set([
+        ...state.rejectedStoryUrls,
+        ...(state.storySelection?.supportingSourceUrls ?? []),
+      ]),
+    ],
+    draftCaption: null,
+    producerValidationIssues: [],
+  };
+
+  if (producerDecision.decision !== "REJECT_AND_RESCOUT") {
+    return update;
+  }
+
+  return {
+    ...update,
+    factCheck: null,
+    visualBrief: null,
+    referenceRequests: [],
+    referenceApprovals: [],
+    generationRequest: null,
+    generatedCandidates: [],
+    selectedCandidate: null,
+    visualEvaluation: null,
+    visualRegenerationCount: 0,
+    editorialBrief: null,
+    imagePrompt: null,
+    factCheckStatus: "PENDING",
+    factCheckIssues: [],
+    factCheckClaims: [],
+    revisionFeedback: null,
+    revisionCount: 0,
+    generatedImageUrl: null,
+    approvalStatus: "PENDING",
+    publishStatus: "UNPUBLISHED",
+  };
+}
+
 export async function producerNode(
   state: PipelineState
 ): Promise<Partial<PipelineState>> {
@@ -213,15 +282,7 @@ export async function producerNode(
     const producerDecision = { ...parsed, facts };
 
     if (producerDecision.decision !== "ACCEPT") {
-      return {
-        producerDecision,
-        producerRejectionCount: state.producerRejectionCount + 1,
-        rejectedStoryUrls: [
-          ...new Set([...state.rejectedStoryUrls, ...selectedUrls]),
-        ],
-        draftCaption: null,
-        producerValidationIssues: [],
-      };
+      return buildProducerRejectionUpdate(state, producerDecision);
     }
 
     const producerValidationIssues = validateCaption(
@@ -229,18 +290,11 @@ export async function producerNode(
       articles.map((article) => article.bodyText)
     );
 
-    return {
+    return buildAcceptedProducerUpdate(
+      state,
       producerDecision,
-      draftCaption: producerDecision.caption,
-      producerValidationIssues,
-      factCheckStatus: "PENDING",
-      factCheckIssues: [],
-      factCheckClaims: [],
-      revisionFeedback:
-        producerValidationIssues.length > 0
-          ? producerValidationIssues.join(" ")
-          : null,
-    };
+      producerValidationIssues
+    );
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[producer] Failed: ${msg}`);

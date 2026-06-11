@@ -89,10 +89,46 @@ export function parseFactCheckResult(value: unknown): FactCheckResult {
   };
 }
 
+export function prepareFactCheckerHandoff(state: PipelineState): {
+  evidence: Array<{
+    title: string;
+    url: string;
+    bodyText: string;
+  }>;
+  producerDecision: NonNullable<PipelineState["producerDecision"]>;
+  caption: string;
+} | null {
+  if (
+    state.storySelection?.decision !== "SELECT" ||
+    state.producerDecision?.decision !== "ACCEPT" ||
+    !state.draftCaption
+  ) {
+    return null;
+  }
+
+  const selectedUrls = state.storySelection.supportingSourceUrls;
+  const evidence = state.filteredArticles
+    .filter(
+      (article) => mapToSuppliedUrl(article.url, selectedUrls) !== null
+    )
+    .map((article) => ({
+      title: article.title,
+      url: article.url,
+      bodyText: article.bodyText.slice(0, 8_000),
+    }));
+
+  return {
+    evidence,
+    producerDecision: state.producerDecision,
+    caption: state.draftCaption,
+  };
+}
+
 export async function factCheckerNode(
   state: PipelineState
 ): Promise<Partial<PipelineState>> {
-  if (!state.scoutBrief || !state.editorialBrief || !state.draftCaption) {
+  const handoff = prepareFactCheckerHandoff(state);
+  if (!handoff) {
     return {
       factCheckStatus: "REJECT",
       errorLog: ["[factChecker] Draft state was incomplete"],
@@ -101,22 +137,13 @@ export async function factCheckerNode(
 
   console.log(`[factChecker] Auditing draft, revision=${state.revisionCount}`);
 
-  const selectedUrls = new Set(state.scoutBrief.selectedArticleUrls);
-  const evidence = state.filteredArticles
-    .filter((article) => selectedUrls.has(article.url))
-    .map((article) => ({
-      title: article.title,
-      url: article.url,
-      bodyText: article.bodyText.slice(0, 8_000),
-    }));
-
   try {
     const response = await callLlmJson(
       loadPrompt("fact-checker.v1.md"),
       JSON.stringify({
-        evidence,
-        editorialBrief: state.editorialBrief,
-        caption: state.draftCaption,
+        evidence: handoff.evidence,
+        producerDecision: handoff.producerDecision,
+        caption: handoff.caption,
       }),
       {
         model: process.env.LLM_FACT_CHECKER_MODEL,
@@ -126,7 +153,7 @@ export async function factCheckerNode(
     );
 
     const result = parseFactCheckResult(response);
-    const suppliedUrls = evidence.map((article) => article.url);
+    const suppliedUrls = handoff.evidence.map((article) => article.url);
     const claimChecks = result.claim_checks.map((check) => ({
       ...check,
       sourceUrl:
