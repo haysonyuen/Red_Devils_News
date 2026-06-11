@@ -7,7 +7,12 @@ import {
   parseStorySelection,
   validateStorySelectionUrls,
 } from "./nodes/scout";
-import { parseProducerOutput } from "./nodes/producer";
+import {
+  buildAcceptedProducerUpdate,
+  buildProducerRejectionUpdate,
+  parseProducerOutput,
+} from "./nodes/producer";
+import { prepareFactCheckerHandoff } from "./nodes/factChecker";
 import { routeAfterProducer, routeAfterScout } from "./pipeline";
 import { PipelineStateAnnotation } from "./state";
 
@@ -40,6 +45,26 @@ const producer: ProducerOutput = {
   supporterOpinion: "We should avoid another unresolved summer",
   caption: "We need clarity before pre-season...",
   headlineOptions: ["DECISION TIME", "NO MORE DRIFTING"],
+};
+
+const factCheck: FactCheckOutput = {
+  status: "PASS",
+  storyStatus: "INTEREST",
+  claimChecks: [
+    {
+      claim: "A decision is pending",
+      verdict: "SUPPORTED",
+      evidence: "The article says a decision is pending.",
+      sourceUrl: scout.supportingSourceUrls[0],
+    },
+  ],
+  visualImplicationsAllowed: [
+    "Current or neutral clothing",
+    "Symbolic destination colors",
+  ],
+  visualImplicationsForbidden: ["Completed signing", "Destination kit"],
+  issues: [],
+  revisionFeedback: null,
 };
 
 function expectThrows(label: string, action: () => unknown): void {
@@ -203,6 +228,164 @@ if (
   throw new Error("A valid accepted Producer output should route to Fact Checker");
 }
 
+const selectedArticle = {
+  url: sourceUrl,
+  title: "United transfer update",
+  source: "BBC Sport",
+  bodyText: "A decision is pending.",
+};
+const factCheckerHandoff = prepareFactCheckerHandoff(
+  state({
+    storySelection: scout,
+    producerDecision: producer,
+    draftCaption: producer.caption,
+    editorialBrief: null,
+    filteredArticles: [
+      selectedArticle,
+      {
+        ...selectedArticle,
+        url: alternateSourceUrl,
+        title: "Unselected story",
+      },
+    ],
+  })
+);
+if (!factCheckerHandoff) {
+  throw new Error(
+    "An accepted ProducerOutput should be a valid Fact Checker handoff without editorialBrief"
+  );
+}
+if (
+  factCheckerHandoff.producerDecision !== producer ||
+  factCheckerHandoff.caption !== producer.caption ||
+  factCheckerHandoff.evidence.length !== 1 ||
+  factCheckerHandoff.evidence[0].url !== sourceUrl
+) {
+  throw new Error(
+    "Fact Checker handoff should contain the accepted ProducerOutput, caption, and selected evidence"
+  );
+}
+
+const revisionUpdate = buildAcceptedProducerUpdate(
+  state({
+    revisionFeedback: "Clarify the transfer status.",
+    revisionCount: 4,
+  }),
+  producer,
+  []
+);
+if (revisionUpdate.revisionCount !== 5) {
+  throw new Error("A Producer revision should increment revisionCount once");
+}
+const initialProducerUpdate = buildAcceptedProducerUpdate(
+  state({
+    revisionFeedback: null,
+    revisionCount: 0,
+  }),
+  producer,
+  []
+);
+if (initialProducerUpdate.revisionCount !== 0) {
+  throw new Error("An initial Producer pass should not increment revisionCount");
+}
+
+const rescoutDecision: ProducerOutput = {
+  decision: "REJECT_AND_RESCOUT",
+  decisionReason: "The selected story is too thin",
+  angle: null,
+  facts: [],
+  supporterOpinion: null,
+  caption: null,
+  headlineOptions: [],
+};
+const rescoutUpdate = buildProducerRejectionUpdate(
+  state({
+    storySelection: scout,
+    producerRejectionCount: 0,
+    rejectedStoryUrls: [alternateSourceUrl],
+    revisionFeedback: "Old revision feedback",
+    factCheck: factCheck,
+    factCheckStatus: "PASS",
+    factCheckIssues: ["Old issue"],
+    factCheckClaims: factCheck.claimChecks,
+    revisionCount: 1,
+    draftCaption: "Old caption",
+    producerValidationIssues: ["Old validation issue"],
+    editorialBrief: {
+      narrative: "Old narrative",
+      facts: producer.facts,
+      context: "Old context",
+    },
+    imagePrompt: "Old image prompt",
+    generatedImageUrl: "https://example.com/old-image.jpg",
+    visualBrief: {
+      storyHook: "Old hook",
+      emotionalGoal: "Old goal",
+      primaryCharacter: "Old player",
+      secondaryCharacters: [],
+      compositionMode: "PRIMARY_WITH_BACKGROUND",
+      requiredSignals: ["Old signal"],
+      forbiddenImplications: [],
+      referenceRequirements: [],
+      searchInstructions: [],
+      generationPromptTemplate: "Old template",
+      conceptualFallbackPrompt: "Old fallback",
+      referenceWarning: null,
+    },
+    referenceRequests: [{} as never],
+    referenceApprovals: [{} as never],
+    generationRequest: {} as never,
+    generatedCandidates: [{} as never],
+    selectedCandidate: {} as never,
+    visualEvaluation: {} as never,
+    visualRegenerationCount: 1,
+    approvalStatus: "APPROVED",
+    publishStatus: "SUCCESS",
+  }),
+  rescoutDecision
+);
+const expectedRescoutReset = {
+  revisionFeedback: null,
+  factCheck: null,
+  factCheckStatus: "PENDING",
+  factCheckIssues: [],
+  factCheckClaims: [],
+  revisionCount: 0,
+  draftCaption: null,
+  producerValidationIssues: [],
+  editorialBrief: null,
+  imagePrompt: null,
+  generatedImageUrl: null,
+  visualBrief: null,
+  referenceRequests: [],
+  referenceApprovals: [],
+  generationRequest: null,
+  generatedCandidates: [],
+  selectedCandidate: null,
+  visualEvaluation: null,
+  visualRegenerationCount: 0,
+  approvalStatus: "PENDING",
+  publishStatus: "UNPUBLISHED",
+};
+for (const [field, expected] of Object.entries(expectedRescoutReset)) {
+  const actual = rescoutUpdate[field as keyof typeof rescoutUpdate];
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error(
+      `Expected rescout ${field} ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`
+    );
+  }
+}
+if (
+  rescoutUpdate.producerDecision !== rescoutDecision ||
+  rescoutUpdate.producerRejectionCount !== 1 ||
+  JSON.stringify(rescoutUpdate.rejectedStoryUrls) !==
+    JSON.stringify([alternateSourceUrl, sourceUrl])
+) {
+  throw new Error(
+    "Rescout should preserve its decision, incremented rejection count, and rejected story URLs"
+  );
+}
+
 const canonicalSelection = validateStorySelectionUrls(
   { ...scout, supportingSourceUrls: [`${sourceUrl}?at_medium=RSS`] },
   [sourceUrl, alternateSourceUrl],
@@ -214,26 +397,6 @@ if (canonicalSelection.supportingSourceUrls[0] !== sourceUrl) {
 expectThrows("previously rejected Scout URL", () =>
   validateStorySelectionUrls(scout, [sourceUrl, alternateSourceUrl], [sourceUrl])
 );
-
-const factCheck: FactCheckOutput = {
-  status: "PASS",
-  storyStatus: "INTEREST",
-  claimChecks: [
-    {
-      claim: "A decision is pending",
-      verdict: "SUPPORTED",
-      evidence: "The article says a decision is pending.",
-      sourceUrl: scout.supportingSourceUrls[0],
-    },
-  ],
-  visualImplicationsAllowed: [
-    "Current or neutral clothing",
-    "Symbolic destination colors",
-  ],
-  visualImplicationsForbidden: ["Completed signing", "Destination kit"],
-  issues: [],
-  revisionFeedback: null,
-};
 
 if (
   scout.decision !== "SELECT" ||
