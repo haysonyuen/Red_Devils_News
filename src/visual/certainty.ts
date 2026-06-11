@@ -26,11 +26,30 @@ function normalize(value: string): string {
 }
 
 function containsConcept(text: string, concept: string): boolean {
-  const normalizedConcept = normalize(concept);
-  return (
-    normalizedConcept.length > 0 &&
-    ` ${normalize(text)} `.includes(` ${normalizedConcept} `)
-  );
+  const textTokens = normalize(text).split(" ").filter(Boolean);
+  const conceptTokens = normalize(concept).split(" ").filter(Boolean);
+  if (conceptTokens.length === 0) return false;
+
+  for (let index = 0; index <= textTokens.length - conceptTokens.length; index++) {
+    const matches = conceptTokens.every(
+      (token, offset) => textTokens[index + offset] === token
+    );
+    if (!matches) continue;
+
+    const prefix = textTokens.slice(Math.max(0, index - 4), index);
+    if (
+      prefix.includes("no") ||
+      prefix.includes("not") ||
+      prefix.includes("without") ||
+      prefix.includes("avoid") ||
+      prefix.includes("never")
+    ) {
+      continue;
+    }
+    return true;
+  }
+
+  return false;
 }
 
 export function assertVisualRequestAllowed(
