@@ -31,13 +31,15 @@ function containsConcept(text: string, concept: string): boolean {
 
   for (const rawClause of text.split(/[.;,!?\n]+/)) {
     const clause = normalize(rawClause);
-    if (!` ${clause} `.includes(` ${normalizedConcept} `)) continue;
-
-    const escaped = normalizedConcept.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const negated = new RegExp(
-      `\\b(?:do not|dont|never|without|avoid|no)\\s+(?:(?:show|depict|include|use|wear)\\s+)?(?:(?:a|an|the)\\s+)?${escaped}\\b`
+      `\\b(?:do not|dont|never|without|avoid|no)\\s+(?:(?:show|depict|include|use|wear)\\s+)?(?:(?:a|an|the)\\s*)?$`
     );
-    if (!negated.test(clause)) return true;
+    let start = 0;
+    while ((start = clause.indexOf(normalizedConcept, start)) !== -1) {
+      const before = clause.slice(0, start).trim();
+      if (!negated.test(before)) return true;
+      start += normalizedConcept.length;
+    }
   }
 
   return false;
