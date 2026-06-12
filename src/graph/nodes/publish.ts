@@ -3,6 +3,10 @@ import { PipelineState } from "../state";
 
 const META_API_BASE = "https://graph.facebook.com/v21.0";
 
+export interface MetaPublisher {
+  publish(imageUrl: string, caption: string): Promise<string>;
+}
+
 // ── Meta Graph API — Instagram two-step publish ───────────────────────────────
 //
 // Step 1: Create media container
@@ -66,7 +70,8 @@ async function publishMediaContainer(
 // ── Node ──────────────────────────────────────────────────────────────────────
 
 export async function publishNode(
-  state: PipelineState
+  state: PipelineState,
+  publisher?: MetaPublisher
 ): Promise<Partial<PipelineState>> {
   // Guard: only publish if explicitly approved
   if (state.approvalStatus !== "APPROVED") {
@@ -74,17 +79,9 @@ export async function publishNode(
     return { publishStatus: "UNPUBLISHED" };
   }
 
-  const token = process.env.META_GRAPH_TOKEN;
-  const igAccountId = process.env.META_IG_ACCOUNT_ID;
-
-  if (!token || !igAccountId) {
-    const msg = "META_GRAPH_TOKEN or META_IG_ACCOUNT_ID not set";
-    console.error(`[publish] ✖ ${msg}`);
-    return { publishStatus: "FAILED", errorLog: [`[publish] ${msg}`] };
-  }
-
-  if (!state.generatedImageUrl) {
-    const msg = "No generatedImageUrl in state — cannot publish";
+  const imageUrl = state.selectedCandidate?.publicUrl;
+  if (!imageUrl) {
+    const msg = "No selectedCandidate in state — cannot publish";
     console.error(`[publish] ✖ ${msg}`);
     return { publishStatus: "FAILED", errorLog: [`[publish] ${msg}`] };
   }
@@ -96,21 +93,35 @@ export async function publishNode(
   }
 
   console.log(`[publish] Creating Instagram media container…`);
-  console.log(`[publish]   image: ${state.generatedImageUrl}`);
+  console.log(`[publish]   image: ${imageUrl}`);
   console.log(`[publish]   caption: "${state.draftCaption.slice(0, 60)}…"`);
 
   try {
-    // Step 1
-    const creationId = await createMediaContainer(
-      igAccountId,
-      token,
-      state.generatedImageUrl,
-      state.draftCaption
-    );
-    console.log(`[publish] ✔ Container created  creation_id=${creationId}`);
-
-    // Step 2
-    const mediaId = await publishMediaContainer(igAccountId, token, creationId);
+    let activePublisher = publisher;
+    if (!activePublisher) {
+      const token = process.env.META_GRAPH_TOKEN;
+      const igAccountId = process.env.META_IG_ACCOUNT_ID;
+      if (!token || !igAccountId) {
+        throw new Error("META_GRAPH_TOKEN or META_IG_ACCOUNT_ID not set");
+      }
+      activePublisher = {
+        publish: async (candidateUrl, caption) => {
+          const creationId = await createMediaContainer(
+            igAccountId,
+            token,
+            candidateUrl,
+            caption
+          );
+          console.log(`[publish] ✔ Container created  creation_id=${creationId}`);
+          return publishMediaContainer(
+            igAccountId,
+            token,
+            creationId
+          );
+        },
+      };
+    }
+    const mediaId = await activePublisher.publish(imageUrl, state.draftCaption);
     console.log(`[publish] ✔ Published to Instagram  media_id=${mediaId}`);
 
     return { publishStatus: "SUCCESS" };

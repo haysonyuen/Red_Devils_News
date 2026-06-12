@@ -7,7 +7,7 @@ import { buildReferenceRequestBlocks } from "../../slack/blocks";
 
 const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
 
-export async function referenceGatewayNode(
+export async function postReferenceRequestNode(
   state: PipelineState
 ): Promise<Partial<PipelineState>> {
   if (!state.visualBrief || state.visualBrief.compositionMode === "CONCEPTUAL") {
@@ -40,6 +40,17 @@ export async function referenceGatewayNode(
     }
   }
 
+  return { referenceRequests: requests };
+}
+
+export function waitForReferencesNode(
+  state: PipelineState
+): Partial<PipelineState> {
+  if (!state.visualBrief || state.visualBrief.compositionMode === "CONCEPTUAL") {
+    return { errorLog: ["[referenceGateway] People-based visual brief required"] };
+  }
+
+  const coordinator = getReferenceCoordinator();
   const resumed = interrupt({
     stage: "REFERENCE_APPROVAL",
     runId: state.runId,

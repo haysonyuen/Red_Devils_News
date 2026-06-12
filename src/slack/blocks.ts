@@ -152,6 +152,23 @@ export function buildFinalApprovalBlocks(
   selectedCandidate: GeneratedCandidate,
   state: PipelineState
 ): KnownBlock[] {
+  const selectedUrls = new Set(state.scoutBrief?.selectedArticleUrls ?? []);
+  const sources = state.filteredArticles
+    .filter((article) => selectedUrls.has(article.url))
+    .map((article) => `• <${article.url}|${article.title}>`)
+    .join("\n");
+  const scores = selectedCandidate.evaluation?.scores;
+  const scoreSummary = scores
+    ? `Story ${scores.storyAlignment} · Feed ${scores.feedImpact} · Composition ${scores.composition} · Caption ${scores.captionComplement} · Facts ${scores.factualIntegrity}`
+    : "No visual scores";
+  const warnings =
+    selectedCandidate.evaluation?.warnings.join("; ") || "None";
+  const referenceAudit =
+    state.referenceApprovals.length > 0
+      ? state.referenceApprovals
+          .map((reference) => `${reference.person} (${reference.role.toLowerCase()})`)
+          .join(", ")
+      : "Conceptual image; no identity references used";
   return [
     {
       type: "image",
@@ -161,6 +178,13 @@ export function buildFinalApprovalBlocks(
     {
       type: "section",
       text: { type: "mrkdwn", text: `*Caption:*\n${state.draftCaption ?? ""}` },
+    },
+    {
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*Sources:*\n${sources || "_None_"}\n\n*Fact check:* ${state.factCheck?.status ?? state.factCheckStatus} · ${state.factCheck?.issues.length ?? state.factCheckIssues.length} issue(s)\n*Visual:* ${scoreSummary}\n*Warnings:* ${warnings}\n*References:* ${referenceAudit}`,
+      },
     },
     {
       type: "actions",
