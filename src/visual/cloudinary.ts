@@ -109,6 +109,10 @@ export class CloudinaryAssetService {
     return this.dependencies.download(url, {});
   }
 
+  signedReferenceUrl(privateAssetId: string): string {
+    return this.dependencies.signedUrl(privateAssetId);
+  }
+
   async bufferCandidate(
     buffer: Buffer,
     runId: string,

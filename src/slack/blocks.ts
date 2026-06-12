@@ -103,7 +103,7 @@ export function buildCandidateSelectionBlocks(
   runId: string,
   candidates: GeneratedCandidate[]
 ): KnownBlock[] {
-  return candidates.flatMap((candidate) => [
+  const blocks = candidates.flatMap((candidate) => [
     {
       type: "image",
       image_url: candidate.publicUrl,
@@ -126,6 +126,25 @@ export function buildCandidateSelectionBlocks(
       ],
     } as KnownBlock,
   ]);
+  blocks.push({
+    type: "actions",
+    elements: [
+      {
+        type: "button",
+        text: { type: "plain_text", text: "Regenerate" },
+        action_id: "candidate_regenerate",
+        value: actionValue(runId, "CANDIDATE_SELECTION", "all", "REGENERATE"),
+      },
+      {
+        type: "button",
+        text: { type: "plain_text", text: "Reject" },
+        style: "danger",
+        action_id: "candidate_reject",
+        value: actionValue(runId, "CANDIDATE_SELECTION", "all", "REJECT"),
+      },
+    ],
+  } as KnownBlock);
+  return blocks;
 }
 
 export function buildFinalApprovalBlocks(

@@ -5,10 +5,16 @@ import { ingestNode } from "./nodes/ingest";
 import { scoutNode } from "./nodes/scout";
 import { producerNode } from "./nodes/producer";
 import { factCheckerNode } from "./nodes/factChecker";
-import { visualBriefNode } from "./nodes/visualProducer";
+import {
+  visualBriefNode,
+  visualEvaluationNode,
+} from "./nodes/visualProducer";
 import { referenceGatewayNode } from "./nodes/referenceGateway";
 import { imageGenNode } from "./nodes/imageGen";
-import { slackGatewayNode } from "./nodes/slackGateway";
+import {
+  candidateSelectionNode,
+  slackGatewayNode,
+} from "./nodes/slackGateway";
 import { publishNode } from "./nodes/publish";
 
 function routeAfterIngest(
@@ -81,8 +87,25 @@ export function routeAfterReferences(
 
 export function routeAfterImage(
   state: typeof PipelineStateAnnotation.State
-): "slackGateway" | "__end__" {
-  return state.generatedImageUrl ? "slackGateway" : "__end__";
+): "visualEvaluation" | "__end__" {
+  return state.generatedCandidates.length > 0 ? "visualEvaluation" : "__end__";
+}
+
+export function routeAfterVisualEvaluation(
+  state: typeof PipelineStateAnnotation.State
+): "candidateSelection" | "imageGen" | "__end__" {
+  if (state.generatedCandidates.some((candidate) => candidate.qualified)) {
+    return "candidateSelection";
+  }
+  return state.visualRegenerationCount < 3 ? "imageGen" : "__end__";
+}
+
+export function routeAfterCandidateSelection(
+  state: typeof PipelineStateAnnotation.State
+): "slackGateway" | "imageGen" | "__end__" {
+  if (state.selectedCandidate) return "slackGateway";
+  if (state.approvalStatus === "REJECTED") return "__end__";
+  return state.visualRegenerationCount > 0 ? "imageGen" : "__end__";
 }
 
 // ── Route after Slack gateway ─────────────────────────────────────────────────
@@ -103,6 +126,8 @@ export function buildPipeline(checkpointer: SqliteSaver) {
     .addNode("visualBrief", visualBriefNode)
     .addNode("referenceGateway", referenceGatewayNode)
     .addNode("imageGen", imageGenNode)
+    .addNode("visualEvaluation", visualEvaluationNode)
+    .addNode("candidateSelection", candidateSelectionNode)
     .addNode("slackGateway", slackGatewayNode)
     .addNode("publish", publishNode)
 
@@ -136,7 +161,17 @@ export function buildPipeline(checkpointer: SqliteSaver) {
       __end__: END,
     })
     .addConditionalEdges("imageGen", routeAfterImage, {
+      visualEvaluation: "visualEvaluation",
+      __end__: END,
+    })
+    .addConditionalEdges("visualEvaluation", routeAfterVisualEvaluation, {
+      candidateSelection: "candidateSelection",
+      imageGen: "imageGen",
+      __end__: END,
+    })
+    .addConditionalEdges("candidateSelection", routeAfterCandidateSelection, {
       slackGateway: "slackGateway",
+      imageGen: "imageGen",
       __end__: END,
     })
     .addConditionalEdges("slackGateway", routeAfterApproval, {

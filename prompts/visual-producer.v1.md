@@ -47,3 +47,10 @@ included people, omitted people, and approved reference IDs exactly. Convert the
 approved brief into one production prompt, request exactly three candidates,
 and do not add people, URLs, text, logos, or implications forbidden by the Fact
 Checker.
+
+When the caller sets `phase` to `CANDIDATE_EVALUATION`, inspect the candidate
+against the brief, caption, Fact Checker boundaries, and each supplied identity
+reference. Score every included person separately. Record hard failures for a
+wrong or unrecognizable person, critical anatomy artifacts, unclear mobile-size
+story, factual contradiction, malformed kit/crest/sponsor/text, or an obscured
+primary subject. Do not let an overall recommendation hide a hard failure.

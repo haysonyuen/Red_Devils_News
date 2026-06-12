@@ -40,17 +40,17 @@ if (route("REJECT", 0) !== "__end__") {
 }
 if (
   routeAfterImage({
-    generatedImageUrl: "https://example.com/image.jpg",
-  } as typeof PipelineStateAnnotation.State) !== "slackGateway"
+    generatedCandidates: [{}],
+  } as unknown as typeof PipelineStateAnnotation.State) !== "visualEvaluation"
 ) {
-  throw new Error("A buffered image should route to Slack");
+  throw new Error("Generated candidates should route to visual evaluation");
 }
 if (
   routeAfterImage({
-    generatedImageUrl: null,
-  } as typeof PipelineStateAnnotation.State) !== "__end__"
+    generatedCandidates: [],
+  } as unknown as typeof PipelineStateAnnotation.State) !== "__end__"
 ) {
-  throw new Error("A failed image should end before Slack");
+  throw new Error("A failed image should end before visual evaluation");
 }
 
 console.log("Three-agent contract tests passed");
