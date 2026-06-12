@@ -1,4 +1,5 @@
 import {
+  GenerationRequest,
   CompositionMode,
   ReferenceRole,
   VisualBrief,
@@ -33,6 +34,15 @@ const COMPOSITION_MODES: CompositionMode[] = [
   "CONCEPTUAL",
 ];
 const REFERENCE_ROLES: ReferenceRole[] = ["PRIMARY", "SECONDARY"];
+const GENERATION_REQUEST_KEYS = [
+  "compositionMode",
+  "includedPeople",
+  "omittedPeople",
+  "approvedReferenceIds",
+  "generationPrompt",
+  "candidateCount",
+  "fallbackUsed",
+] as const;
 
 const VISUAL_BRIEF_SCHEMA = {
   type: "object",
@@ -85,6 +95,24 @@ const VISUAL_BRIEF_SCHEMA = {
     referenceWarning: {
       anyOf: [{ type: "string", minLength: 1 }, { type: "null" }],
     },
+  },
+};
+
+const GENERATION_REQUEST_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: [...GENERATION_REQUEST_KEYS],
+  properties: {
+    compositionMode: { type: "string", enum: [...COMPOSITION_MODES] },
+    includedPeople: { type: "array", items: { type: "string", minLength: 1 } },
+    omittedPeople: { type: "array", items: { type: "string", minLength: 1 } },
+    approvedReferenceIds: {
+      type: "array",
+      items: { type: "string", minLength: 1 },
+    },
+    generationPrompt: { type: "string", minLength: 1 },
+    candidateCount: { type: "number", const: 3 },
+    fallbackUsed: { type: "boolean" },
   },
 };
 
@@ -263,6 +291,54 @@ export function parseVisualBrief(value: unknown): VisualBrief {
   return brief;
 }
 
+export function parseGenerationRequest(value: unknown): GenerationRequest {
+  if (!isRecord(value) || !hasExactKeys(value, GENERATION_REQUEST_KEYS)) {
+    throw new Error("Generation request must contain exactly the required keys");
+  }
+  if (
+    !COMPOSITION_MODES.includes(value.compositionMode as CompositionMode) ||
+    !isNonEmptyString(value.generationPrompt) ||
+    value.candidateCount !== 3 ||
+    typeof value.fallbackUsed !== "boolean"
+  ) {
+    throw new Error("Generation request is invalid");
+  }
+  const includedPeople = parseStringArrayAllowEmpty(
+    value.includedPeople,
+    "includedPeople"
+  );
+  const omittedPeople = parseStringArrayAllowEmpty(
+    value.omittedPeople,
+    "omittedPeople"
+  );
+  const approvedReferenceIds = parseStringArrayAllowEmpty(
+    value.approvedReferenceIds,
+    "approvedReferenceIds"
+  );
+  if (
+    hasDuplicatePeople([...includedPeople, ...omittedPeople]) ||
+    new Set(approvedReferenceIds).size !== approvedReferenceIds.length
+  ) {
+    throw new Error("Generation request contains duplicate people or references");
+  }
+  return {
+    compositionMode: value.compositionMode as CompositionMode,
+    includedPeople,
+    omittedPeople,
+    approvedReferenceIds,
+    generationPrompt: value.generationPrompt,
+    candidateCount: 3,
+    fallbackUsed: value.fallbackUsed,
+  };
+}
+
+function parseStringArrayAllowEmpty(value: unknown, field: string): string[] {
+  if (!Array.isArray(value) || !value.every(isNonEmptyString)) {
+    throw new Error(`Generation request has an invalid ${field}`);
+  }
+  return value;
+}
+
 export function prepareVisualBriefInput(state: PipelineState): {
   caption: string;
   story: {
@@ -381,6 +457,87 @@ export async function createVisualBrief(
   validateVisualBriefAgainstInput(brief, input);
 
   return brief;
+}
+
+export async function createGenerationRequest(
+  state: PipelineState
+): Promise<GenerationRequest> {
+  if (!state.visualBrief || state.factCheck?.status !== "PASS") {
+    throw new Error("Generation request requires a fact-checked visual brief");
+  }
+
+  const cast = [
+    ...(state.visualBrief.primaryCharacter
+      ? [state.visualBrief.primaryCharacter]
+      : []),
+    ...state.visualBrief.secondaryCharacters,
+  ];
+  const approvedPeople = state.referenceApprovals.map((reference) =>
+    normalizedText(reference.person)
+  );
+  const includedPeople = cast.filter((person) =>
+    approvedPeople.includes(normalizedText(person))
+  );
+  const omittedPeople = cast.filter(
+    (person) => !approvedPeople.includes(normalizedText(person))
+  );
+
+  if (state.visualBrief.compositionMode === "CONCEPTUAL") {
+    const generationPrompt =
+      state.imagePrompt ?? state.visualBrief.conceptualFallbackPrompt;
+    assertVisualRequestAllowed(
+      state.factCheck.storyStatus,
+      generationPrompt,
+      state.factCheck.visualImplicationsForbidden
+    );
+    return {
+      compositionMode: "CONCEPTUAL",
+      includedPeople: [],
+      omittedPeople,
+      approvedReferenceIds: [],
+      generationPrompt,
+      candidateCount: 3,
+      fallbackUsed: state.referenceRequests.length > 0,
+    };
+  }
+
+  const response = await callLlmJson(
+    loadPrompt("visual-producer.v1.md"),
+    JSON.stringify({
+      phase: "GENERATION_REQUEST",
+      visualBrief: state.visualBrief,
+      factCheck: state.factCheck,
+      approvedReferences: state.referenceApprovals,
+      includedPeople,
+      omittedPeople,
+    }),
+    {
+      model: process.env.LLM_VISUAL_PRODUCER_MODEL,
+      schemaName: "generation_request",
+      schema: GENERATION_REQUEST_SCHEMA,
+    }
+  );
+  const request = parseGenerationRequest(response);
+  const expectedReferenceIds = state.referenceApprovals.map(
+    (reference) => reference.requestId
+  );
+  if (
+    JSON.stringify(request.includedPeople) !== JSON.stringify(includedPeople) ||
+    JSON.stringify(request.omittedPeople) !== JSON.stringify(omittedPeople) ||
+    JSON.stringify(request.approvedReferenceIds) !==
+      JSON.stringify(expectedReferenceIds)
+  ) {
+    throw new Error("Generation request changed the resolved cast or references");
+  }
+  assertVisualRequestAllowed(
+    state.factCheck.storyStatus,
+    request.generationPrompt,
+    state.factCheck.visualImplicationsForbidden
+  );
+  if (requestsEmbeddedTextOrBranding(request.generationPrompt)) {
+    throw new Error("Generation request cannot request embedded text or branding");
+  }
+  return request;
 }
 
 export async function visualBriefNode(

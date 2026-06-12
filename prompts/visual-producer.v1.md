@@ -41,3 +41,9 @@ supporter publication. Use only the supplied editorial and fact-check inputs.
 
 Return only the requested JSON object. Use exactly the requested keys and no
 markdown or commentary.
+
+When the caller sets `phase` to `GENERATION_REQUEST`, preserve the resolved
+included people, omitted people, and approved reference IDs exactly. Convert the
+approved brief into one production prompt, request exactly three candidates,
+and do not add people, URLs, text, logos, or implications forbidden by the Fact
+Checker.
