@@ -83,7 +83,6 @@ export function applyCandidateDecision(
           compositionMode: "CONCEPTUAL",
           referenceRequirements: [],
         },
-        imagePrompt: visualBrief.conceptualFallbackPrompt,
       };
     }
     return { selectedCandidate: null, visualRegenerationCount };

@@ -127,10 +127,6 @@ export const PipelineStateAnnotation = Annotation.Root({
     reducer: (_, next) => next,
     default: () => null,
   }),
-  imagePrompt: Annotation<string | null>({
-    reducer: (_, next) => next,
-    default: () => null,
-  }),
   producerValidationIssues: Annotation<string[]>({
     reducer: (_, next) => next,
     default: () => [],

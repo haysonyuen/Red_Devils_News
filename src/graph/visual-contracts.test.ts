@@ -254,7 +254,7 @@ expectThrows(
 if (
   routeAfterFactCheck(
     state({ factCheck: validOutput, factCheckStatus: "REJECT", revisionCount: 0 })
-  ) !== "visualBrief"
+  ) !== "createVisualBrief"
 ) {
   throw new Error("Grouped PASS should route to Visual Producer");
 }

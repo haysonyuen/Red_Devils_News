@@ -1,4 +1,6 @@
 import { GeneratedCandidate } from "./contracts";
+import { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
+import { buildPipeline } from "./pipeline";
 import {
   applyCandidateDecision,
   applyFinalApprovalDecision,
@@ -105,7 +107,6 @@ function state(
     },
     editorialBrief: null,
     draftCaption: "United need clarity before pre-season. #MUFC",
-    imagePrompt: null,
     producerValidationIssues: [],
     factCheckStatus: "PASS",
     factCheckIssues: [],
@@ -209,7 +210,10 @@ Promise.all([
   testFinalApprovalControlsMeta(),
   testRegenerationFallback(),
 ])
-  .then(() => console.log("Workflow tests passed"))
+  .then(() => {
+    buildPipeline(SqliteSaver.fromConnString(":memory:"));
+    console.log("Workflow tests passed");
+  })
   .catch((error) => {
     console.error(error);
     process.exitCode = 1;
