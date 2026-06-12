@@ -67,9 +67,16 @@ export function routeAfterVisualBrief(
 export function routeAfterReferences(
   state: typeof PipelineStateAnnotation.State
 ): "imageGen" | "__end__" {
-  return state.visualBrief?.compositionMode === "CONCEPTUAL"
-    ? "imageGen"
-    : "__end__";
+  if (state.visualBrief?.compositionMode === "CONCEPTUAL") return "imageGen";
+  const pending = state.referenceRequests.some((request) =>
+    ["AWAITING_UPLOAD", "AWAITING_SOURCE", "AWAITING_DECISION"].includes(
+      request.status
+    )
+  );
+  const primaryApproved = state.referenceRequests.some(
+    (request) => request.role === "PRIMARY" && request.status === "APPROVED"
+  );
+  return !pending && primaryApproved ? "imageGen" : "__end__";
 }
 
 export function routeAfterImage(
