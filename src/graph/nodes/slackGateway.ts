@@ -1,9 +1,70 @@
 import { WebClient, KnownBlock } from "@slack/web-api";
 import { interrupt } from "@langchain/langgraph";
 import { PipelineState } from "../state";
+import { buildCandidateSelectionBlocks } from "../../slack/blocks";
 
 const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
 const CHANNEL_ID = process.env.SLACK_CHANNEL_ID ?? "";
+
+export async function candidateSelectionNode(
+  state: PipelineState
+): Promise<Partial<PipelineState>> {
+  const qualified = state.generatedCandidates.filter(
+    (candidate) => candidate.qualified
+  );
+  if (qualified.length === 0) {
+    return { errorLog: ["[candidateSelection] No qualified candidates"] };
+  }
+  if (process.env.SLACK_BOT_TOKEN) {
+    await slack.chat.postMessage({
+      channel: CHANNEL_ID,
+      text: "Select an Instagram image candidate",
+      blocks: buildCandidateSelectionBlocks(state.runId, qualified),
+    });
+  }
+
+  const decision = interrupt({
+    stage: "CANDIDATE_SELECTION",
+    runId: state.runId,
+  }) as {
+    stage: "CANDIDATE_SELECTION";
+    entity_id: string;
+    action: "SELECT" | "REGENERATE" | "REJECT";
+  };
+  if (decision.action === "SELECT") {
+    const selectedCandidate = qualified.find(
+      (candidate) => candidate.id === decision.entity_id
+    );
+    if (!selectedCandidate) {
+      return { errorLog: ["[candidateSelection] Unknown candidate selected"] };
+    }
+    return { selectedCandidate };
+  }
+  if (decision.action === "REGENERATE") {
+    const visualRegenerationCount = state.visualRegenerationCount + 1;
+    const visualBrief = state.visualBrief;
+    if (
+      visualRegenerationCount >= 2 &&
+      visualBrief &&
+      visualBrief.compositionMode !== "CONCEPTUAL"
+    ) {
+      return {
+        selectedCandidate: null,
+        visualRegenerationCount,
+        visualBrief: {
+          ...visualBrief,
+          primaryCharacter: null,
+          secondaryCharacters: [],
+          compositionMode: "CONCEPTUAL",
+          referenceRequirements: [],
+        },
+        imagePrompt: visualBrief.conceptualFallbackPrompt,
+      };
+    }
+    return { selectedCandidate: null, visualRegenerationCount };
+  }
+  return { selectedCandidate: null, approvalStatus: "REJECTED" };
+}
 
 export async function slackGatewayNode(
   state: PipelineState
@@ -11,7 +72,7 @@ export async function slackGatewayNode(
   console.log(`[slackGateway] Sending approval card for runId=${state.runId}`);
 
   const caption = state.draftCaption ?? "_(no caption drafted)_";
-  const imageUrl = state.generatedImageUrl;
+  const imageUrl = state.selectedCandidate?.publicUrl ?? state.generatedImageUrl;
   const selectedUrls = new Set(state.scoutBrief?.selectedArticleUrls ?? []);
   const sources = state.filteredArticles
     .filter((article) => selectedUrls.has(article.url))

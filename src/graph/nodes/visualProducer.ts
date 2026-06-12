@@ -1,13 +1,20 @@
 import {
   GenerationRequest,
+  CandidateEvaluation,
   CompositionMode,
   ReferenceRole,
   VisualBrief,
 } from "../contracts";
 import { PipelineState } from "../state";
-import { callLlmJson } from "../../llm/client";
+import { callLlmJson, callLlmVisionJson } from "../../llm/client";
 import { loadPrompt } from "../../prompts/load";
 import { assertVisualRequestAllowed } from "../../visual/certainty";
+import {
+  parseCandidateEvaluation,
+  qualifiesCandidate,
+  rankCandidates,
+} from "../../visual/evaluation";
+import { CloudinaryAssetService } from "../../visual/cloudinary";
 
 const VISUAL_BRIEF_KEYS = [
   "storyHook",
@@ -113,6 +120,49 @@ const GENERATION_REQUEST_SCHEMA = {
     generationPrompt: { type: "string", minLength: 1 },
     candidateCount: { type: "number", const: 3 },
     fallbackUsed: { type: "boolean" },
+  },
+};
+
+const CANDIDATE_EVALUATION_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "candidateId",
+    "scores",
+    "hardFailures",
+    "warnings",
+    "rationale",
+    "recommended",
+  ],
+  properties: {
+    candidateId: { type: "string" },
+    scores: {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "identityFidelity",
+        "storyAlignment",
+        "feedImpact",
+        "composition",
+        "captionComplement",
+        "factualIntegrity",
+      ],
+      properties: {
+        identityFidelity: {
+          type: "object",
+          additionalProperties: { type: "number", minimum: 0, maximum: 100 },
+        },
+        storyAlignment: { type: "number", minimum: 0, maximum: 100 },
+        feedImpact: { type: "number", minimum: 0, maximum: 100 },
+        composition: { type: "number", minimum: 0, maximum: 100 },
+        captionComplement: { type: "number", minimum: 0, maximum: 100 },
+        factualIntegrity: { type: "number", minimum: 0, maximum: 100 },
+      },
+    },
+    hardFailures: { type: "array", items: { type: "string" } },
+    warnings: { type: "array", items: { type: "string" } },
+    rationale: { type: "string" },
+    recommended: { type: "boolean" },
   },
 };
 
@@ -538,6 +588,123 @@ export async function createGenerationRequest(
     throw new Error("Generation request cannot request embedded text or branding");
   }
   return request;
+}
+
+export async function evaluateCandidates(
+  state: PipelineState
+): Promise<CandidateEvaluation[]> {
+  if (
+    !state.visualBrief ||
+    !state.generationRequest ||
+    !state.factCheck ||
+    state.generatedCandidates.length === 0
+  ) {
+    throw new Error("Candidate evaluation requires generated visual state");
+  }
+  const assets = new CloudinaryAssetService();
+  const referenceUrls = state.referenceApprovals.map((reference) =>
+    assets.signedReferenceUrl(reference.privateAssetId)
+  );
+  const evaluations: CandidateEvaluation[] = [];
+
+  for (const candidate of state.generatedCandidates) {
+    const response = await callLlmVisionJson(
+      loadPrompt("visual-producer.v1.md"),
+      JSON.stringify({
+        phase: "CANDIDATE_EVALUATION",
+        imageOrder:
+          "The first image is the generated candidate. Remaining images are approved identity references in approvedReferences order.",
+        candidateId: candidate.id,
+        caption: state.draftCaption,
+        visualBrief: state.visualBrief,
+        generationRequest: state.generationRequest,
+        factCheck: state.factCheck,
+        identityThreshold: 90,
+      }),
+      [candidate.publicUrl, ...referenceUrls],
+      {
+        model: process.env.LLM_VISUAL_MODEL,
+        schemaName: "candidate_evaluation",
+        schema: CANDIDATE_EVALUATION_SCHEMA,
+      }
+    );
+    const evaluation = parseCandidateEvaluation(response);
+    if (evaluation.candidateId !== candidate.id) {
+      throw new Error("Visual evaluation returned the wrong candidate ID");
+    }
+    const expectedPeople = state.generationRequest.includedPeople
+      .map(normalizedText)
+      .sort();
+    const scoredPeople = Object.keys(evaluation.scores.identityFidelity)
+      .map(normalizedText)
+      .sort();
+    if (JSON.stringify(expectedPeople) !== JSON.stringify(scoredPeople)) {
+      throw new Error("Visual evaluation did not score every included person");
+    }
+    evaluations.push(evaluation);
+  }
+  return evaluations;
+}
+
+export async function visualEvaluationNode(
+  state: PipelineState
+): Promise<Partial<PipelineState>> {
+  try {
+    const evaluations = await evaluateCandidates(state);
+    const evaluated = rankCandidates(
+      state.generatedCandidates.map((candidate) => {
+        const evaluation = evaluations.find(
+          (value) => value.candidateId === candidate.id
+        ) as CandidateEvaluation;
+        return {
+          ...candidate,
+          evaluation,
+          qualified: qualifiesCandidate(evaluation),
+        };
+      })
+    );
+    const qualified = evaluated.filter((candidate) => candidate.qualified);
+    if (qualified.length > 0) {
+      return {
+        generatedCandidates: evaluated,
+        visualEvaluation: qualified[0].evaluation,
+      };
+    }
+
+    const visualRegenerationCount = state.visualRegenerationCount + 1;
+    const visualBrief = state.visualBrief;
+    if (
+      visualRegenerationCount === 2 &&
+      visualBrief &&
+      visualBrief.compositionMode !== "CONCEPTUAL"
+    ) {
+      return {
+        generatedCandidates: evaluated,
+        visualEvaluation: evaluated[0]?.evaluation ?? null,
+        visualRegenerationCount,
+        visualBrief: {
+          ...visualBrief,
+          primaryCharacter: null,
+          secondaryCharacters: [],
+          compositionMode: "CONCEPTUAL",
+          referenceRequirements: [],
+        },
+        imagePrompt: visualBrief.conceptualFallbackPrompt,
+      };
+    }
+    return {
+      generatedCandidates: evaluated,
+      visualEvaluation: evaluated[0]?.evaluation ?? null,
+      visualRegenerationCount,
+    };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      generatedCandidates: [],
+      visualRegenerationCount: 3,
+      errorLog: [`[visualProducer:evaluation] ${message}`],
+    };
+  }
 }
 
 export async function visualBriefNode(

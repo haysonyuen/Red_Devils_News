@@ -22,9 +22,12 @@ export async function imageGenNode(
 
   try {
     const assets = new CloudinaryAssetService();
-    const approvedRequests = state.referenceRequests.filter(
-      (request) => request.status === "APPROVED"
-    );
+    const approvedRequests =
+      state.visualBrief.compositionMode === "CONCEPTUAL"
+        ? []
+        : state.referenceRequests.filter(
+            (request) => request.status === "APPROVED"
+          );
     const selectedRequests = [
       ...approvedRequests.filter((request) => request.role === "PRIMARY"),
       ...approvedRequests.filter((request) => request.role === "SECONDARY"),

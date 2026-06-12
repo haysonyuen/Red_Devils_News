@@ -15,6 +15,11 @@ import {
 } from "./nodes/visualProducer";
 import { PipelineStateAnnotation } from "./state";
 import { assertVisualRequestAllowed } from "../visual/certainty";
+import {
+  parseCandidateEvaluation,
+  qualifiesCandidate,
+  rankCandidates,
+} from "../visual/evaluation";
 
 const suppliedUrl =
   "https://www.bbc.com/sport/football/articles/example?at_medium=RSS";
@@ -526,7 +531,65 @@ async function testVisualBriefNodePrecondition(): Promise<void> {
 }
 
 testVisualBriefNodePrecondition()
-  .then(() => console.log("Visual contract tests passed"))
+  .then(() => {
+    const evaluation = parseCandidateEvaluation({
+      candidateId: "candidate-1",
+      scores: {
+        identityFidelity: { "Player One": 94 },
+        storyAlignment: 90,
+        feedImpact: 91,
+        composition: 88,
+        captionComplement: 86,
+        factualIntegrity: 92,
+      },
+      hardFailures: [],
+      warnings: [],
+      rationale: "Strong identity and clear story.",
+      recommended: true,
+    });
+    if (!qualifiesCandidate(evaluation)) {
+      throw new Error("Candidate meeting every threshold should qualify");
+    }
+    if (
+      qualifiesCandidate({
+        ...evaluation,
+        hardFailures: ["Malformed club crest"],
+      }) ||
+      qualifiesCandidate({
+        ...evaluation,
+        scores: {
+          ...evaluation.scores,
+          identityFidelity: { "Player One": 89 },
+        },
+      })
+    ) {
+      throw new Error("Hard failures and low identity must disqualify");
+    }
+    const ranked = rankCandidates([
+      {
+        id: "lower",
+        publicUrl: "https://example.com/lower.jpg",
+        providerRequestId: "request-lower",
+        evaluation: { ...evaluation, candidateId: "lower" },
+        qualified: true,
+      },
+      {
+        id: "higher",
+        publicUrl: "https://example.com/higher.jpg",
+        providerRequestId: "request-higher",
+        evaluation: {
+          ...evaluation,
+          candidateId: "higher",
+          scores: { ...evaluation.scores, feedImpact: 99 },
+        },
+        qualified: true,
+      },
+    ]);
+    if (ranked[0].id !== "higher") {
+      throw new Error("Qualified candidates should rank by average score");
+    }
+    console.log("Visual contract tests passed");
+  })
   .catch((error) => {
     console.error(error);
     process.exitCode = 1;
