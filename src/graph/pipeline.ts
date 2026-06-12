@@ -6,6 +6,7 @@ import { scoutNode } from "./nodes/scout";
 import { producerNode } from "./nodes/producer";
 import { factCheckerNode } from "./nodes/factChecker";
 import { visualBriefNode } from "./nodes/visualProducer";
+import { referenceGatewayNode } from "./nodes/referenceGateway";
 import { imageGenNode } from "./nodes/imageGen";
 import { slackGatewayNode } from "./nodes/slackGateway";
 import { publishNode } from "./nodes/publish";
@@ -56,12 +57,19 @@ export function routeAfterFactCheck(
 
 export function routeAfterVisualBrief(
   state: typeof PipelineStateAnnotation.State
-): "imageGen" | "__end__" {
+): "imageGen" | "referenceGateway" | "__end__" {
   if (state.visualBrief?.compositionMode === "CONCEPTUAL") {
     return "imageGen";
   }
-  // Task 6 replaces this end with the reference request stage.
-  return "__end__";
+  return state.visualBrief ? "referenceGateway" : "__end__";
+}
+
+export function routeAfterReferences(
+  state: typeof PipelineStateAnnotation.State
+): "imageGen" | "__end__" {
+  return state.visualBrief?.compositionMode === "CONCEPTUAL"
+    ? "imageGen"
+    : "__end__";
 }
 
 export function routeAfterImage(
@@ -86,6 +94,7 @@ export function buildPipeline(checkpointer: SqliteSaver) {
     .addNode("producer", producerNode)
     .addNode("factChecker", factCheckerNode)
     .addNode("visualBrief", visualBriefNode)
+    .addNode("referenceGateway", referenceGatewayNode)
     .addNode("imageGen", imageGenNode)
     .addNode("slackGateway", slackGatewayNode)
     .addNode("publish", publishNode)
@@ -111,6 +120,11 @@ export function buildPipeline(checkpointer: SqliteSaver) {
       __end__: END,
     })
     .addConditionalEdges("visualBrief", routeAfterVisualBrief, {
+      imageGen: "imageGen",
+      referenceGateway: "referenceGateway",
+      __end__: END,
+    })
+    .addConditionalEdges("referenceGateway", routeAfterReferences, {
       imageGen: "imageGen",
       __end__: END,
     })

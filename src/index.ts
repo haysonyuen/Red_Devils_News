@@ -4,6 +4,8 @@ import { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
 import { buildPipeline } from "./graph/pipeline";
 import { createSlackRouter } from "./webhooks/slack";
 import { randomUUID } from "crypto";
+import { Command } from "@langchain/langgraph";
+import { getReferenceCoordinator } from "./references/runtime";
 
 // ── Checkpointer (SQLite) ─────────────────────────────────────────────────────
 const checkpointer = SqliteSaver.fromConnString("./checkpoints.db");
@@ -13,15 +15,6 @@ const pipeline = buildPipeline(checkpointer);
 
 // ── Express server — Slack webhook + health ───────────────────────────────────
 const app = express();
-
-// Capture raw body for Slack signature verification (before other body parsers)
-app.use(
-  express.json({
-    verify: (req: express.Request & { rawBody?: Buffer }, _res, buf) => {
-      req.rawBody = buf;
-    },
-  })
-);
 
 app.use("/slack", createSlackRouter(checkpointer));
 
@@ -33,7 +26,25 @@ const WEBHOOK_PORT = parseInt(process.env.WEBHOOK_PORT ?? "4242", 10);
 app.listen(WEBHOOK_PORT, () => {
   console.log(`[webhook] Express listening on http://localhost:${WEBHOOK_PORT}`);
   console.log(`[webhook] POST /slack/actions — Slack interactive handler`);
+  console.log(`[webhook] POST /slack/events — Slack Events API handler`);
 });
+
+const referenceCoordinator = getReferenceCoordinator();
+setInterval(() => {
+  for (const runId of referenceCoordinator.expiredRunIds()) {
+    const resolution = referenceCoordinator.timeoutRun(runId);
+    pipeline
+      .invoke(
+        new Command({
+          resume: { stage: "REFERENCE_TIMEOUT", resolution },
+        }),
+        { configurable: { thread_id: runId } }
+      )
+      .catch((error) =>
+        console.error(`[reference-timeout] Failed to resume ${runId}:`, error)
+      );
+  }
+}, 60_000).unref();
 
 // ── Run one pipeline cycle ────────────────────────────────────────────────────
 async function runPipeline(): Promise<void> {

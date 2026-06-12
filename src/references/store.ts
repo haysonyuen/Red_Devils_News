@@ -122,6 +122,24 @@ export class ReferenceStore {
     return rows.map(toReferenceRequest);
   }
 
+  listExpiredRunIds(nowIso: string): string[] {
+    const rows = this.db
+      .prepare(`
+        SELECT DISTINCT run_id
+        FROM reference_requests
+        WHERE status IN ('AWAITING_UPLOAD', 'AWAITING_SOURCE', 'AWAITING_DECISION')
+          AND deadline_at <= ?
+      `)
+      .all(nowIso) as unknown as Array<{ run_id: string }>;
+    return rows.map((row) => row.run_id);
+  }
+
+  updateThreadForRun(runId: string, threadTs: string): void {
+    this.db
+      .prepare("UPDATE reference_requests SET thread_ts = ? WHERE run_id = ?")
+      .run(threadTs, runId);
+  }
+
   update(request: ReferenceRequest): void {
     const result = this.db
       .prepare(`
