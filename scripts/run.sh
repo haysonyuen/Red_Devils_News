@@ -33,6 +33,7 @@ case "${1:-}" in
     node dist/graph/editorial-contracts.test.js
     node dist/graph/visual-contracts.test.js
     node dist/references/coordinator.test.js
+    node dist/webhooks/slack.test.js
     node dist/evals/persona.test.js
     ;;
   *)

@@ -206,6 +206,23 @@ export class ReferenceCoordinator {
     };
   }
 
+  requestsForRun(runId: string): ReferenceRequest[] {
+    return this.store.listForRun(runId);
+  }
+
+  requestsForThread(threadTs: string): ReferenceRequest[] {
+    return this.store.listForThread(threadTs);
+  }
+
+  expiredRunIds(now = new Date()): string[] {
+    return this.store.listExpiredRunIds(now.toISOString());
+  }
+
+  updateThread(runId: string, threadTs: string): void {
+    this.requireRun(runId);
+    this.store.updateThreadForRun(runId, threadTs);
+  }
+
   private requireRequest(requestId: string): ReferenceRequest {
     const request = this.store.get(requestId);
     if (!request) throw new Error(`Unknown reference request: ${requestId}`);

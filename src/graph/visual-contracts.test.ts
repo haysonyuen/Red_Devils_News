@@ -499,9 +499,10 @@ if (
   throw new Error("Conceptual briefs should preserve the legacy image path");
 }
 if (
-  routeAfterVisualBrief(state({ visualBrief: singlePlayerBrief })) !== "__end__"
+  routeAfterVisualBrief(state({ visualBrief: singlePlayerBrief })) !==
+  "referenceGateway"
 ) {
-  throw new Error("People briefs should end until Task 6 adds references");
+  throw new Error("People briefs should route to reference approval");
 }
 
 async function testVisualBriefNodePrecondition(): Promise<void> {
