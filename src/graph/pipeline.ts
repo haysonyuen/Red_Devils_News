@@ -9,11 +9,16 @@ import {
   visualBriefNode,
   visualEvaluationNode,
 } from "./nodes/visualProducer";
-import { referenceGatewayNode } from "./nodes/referenceGateway";
+import {
+  postReferenceRequestNode,
+  waitForReferencesNode,
+} from "./nodes/referenceGateway";
 import { imageGenNode } from "./nodes/imageGen";
 import {
-  candidateSelectionNode,
-  slackGatewayNode,
+  postCandidateSelectionNode,
+  postFinalApprovalNode,
+  waitForCandidateSelectionNode,
+  waitForFinalApprovalNode,
 } from "./nodes/slackGateway";
 import { publishNode } from "./nodes/publish";
 
@@ -102,8 +107,8 @@ export function routeAfterVisualEvaluation(
 
 export function routeAfterCandidateSelection(
   state: typeof PipelineStateAnnotation.State
-): "slackGateway" | "imageGen" | "__end__" {
-  if (state.selectedCandidate) return "slackGateway";
+): "postFinalApproval" | "imageGen" | "__end__" {
+  if (state.selectedCandidate) return "postFinalApproval";
   if (state.approvalStatus === "REJECTED") return "__end__";
   return state.visualRegenerationCount > 0 ? "imageGen" : "__end__";
 }
@@ -124,12 +129,15 @@ export function buildPipeline(checkpointer: SqliteSaver) {
     .addNode("producer", producerNode)
     .addNode("factChecker", factCheckerNode)
     .addNode("visualBrief", visualBriefNode)
-    .addNode("referenceGateway", referenceGatewayNode)
+    .addNode("postReferenceRequest", postReferenceRequestNode)
+    .addNode("waitForReferences", waitForReferencesNode)
     .addNode("imageGen", imageGenNode)
     .addNode("visualEvaluation", visualEvaluationNode)
-    .addNode("candidateSelection", candidateSelectionNode)
-    .addNode("slackGateway", slackGatewayNode)
-    .addNode("publish", publishNode)
+    .addNode("postCandidates", (state) => postCandidateSelectionNode(state))
+    .addNode("waitForCandidateSelection", waitForCandidateSelectionNode)
+    .addNode("postFinalApproval", (state) => postFinalApprovalNode(state))
+    .addNode("waitForFinalApproval", waitForFinalApprovalNode)
+    .addNode("publish", (state) => publishNode(state))
 
     .addEdge(START, "ingest")
     .addConditionalEdges("ingest", routeAfterIngest, {
@@ -153,10 +161,11 @@ export function buildPipeline(checkpointer: SqliteSaver) {
     })
     .addConditionalEdges("visualBrief", routeAfterVisualBrief, {
       imageGen: "imageGen",
-      referenceGateway: "referenceGateway",
+      referenceGateway: "postReferenceRequest",
       __end__: END,
     })
-    .addConditionalEdges("referenceGateway", routeAfterReferences, {
+    .addEdge("postReferenceRequest", "waitForReferences")
+    .addConditionalEdges("waitForReferences", routeAfterReferences, {
       imageGen: "imageGen",
       __end__: END,
     })
@@ -165,16 +174,18 @@ export function buildPipeline(checkpointer: SqliteSaver) {
       __end__: END,
     })
     .addConditionalEdges("visualEvaluation", routeAfterVisualEvaluation, {
-      candidateSelection: "candidateSelection",
+      candidateSelection: "postCandidates",
       imageGen: "imageGen",
       __end__: END,
     })
-    .addConditionalEdges("candidateSelection", routeAfterCandidateSelection, {
-      slackGateway: "slackGateway",
+    .addEdge("postCandidates", "waitForCandidateSelection")
+    .addConditionalEdges("waitForCandidateSelection", routeAfterCandidateSelection, {
+      postFinalApproval: "postFinalApproval",
       imageGen: "imageGen",
       __end__: END,
     })
-    .addConditionalEdges("slackGateway", routeAfterApproval, {
+    .addEdge("postFinalApproval", "waitForFinalApproval")
+    .addConditionalEdges("waitForFinalApproval", routeAfterApproval, {
       publish: "publish",
       __end__: END,
     })

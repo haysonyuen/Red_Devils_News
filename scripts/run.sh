@@ -35,6 +35,7 @@ case "${1:-}" in
     node dist/references/coordinator.test.js
     node dist/webhooks/slack.test.js
     node dist/visual/providers.test.js
+    node dist/graph/workflow.test.js
     node dist/evals/persona.test.js
     ;;
   *)

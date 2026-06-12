@@ -184,6 +184,20 @@ export async function handleSlackActionValue(
     return resolution;
   }
 
+  if (
+    stage === "CANDIDATE_SELECTION" &&
+    (!parsed.entity_id ||
+      !["SELECT", "REGENERATE", "REJECT"].includes(parsed.action))
+  ) {
+    throw new Error("Candidate selection action is invalid");
+  }
+  if (
+    stage === "FINAL_APPROVAL" &&
+    !["APPROVED", "REJECTED"].includes(parsed.action)
+  ) {
+    throw new Error("Final approval action is invalid");
+  }
+
   await resumeGraph(
     parsed.thread_id,
     stage === "FINAL_APPROVAL" ? parsed.action : parsed
