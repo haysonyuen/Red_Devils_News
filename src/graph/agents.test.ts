@@ -41,7 +41,7 @@ if (route("REJECT", 0) !== "__end__") {
 if (
   routeAfterImage({
     generatedCandidates: [{}],
-  } as unknown as typeof PipelineStateAnnotation.State) !== "visualEvaluation"
+  } as unknown as typeof PipelineStateAnnotation.State) !== "evaluateVisuals"
 ) {
   throw new Error("Generated candidates should route to visual evaluation");
 }
@@ -53,4 +53,4 @@ if (
   throw new Error("A failed image should end before visual evaluation");
 }
 
-console.log("Three-agent contract tests passed");
+console.log("Four-agent contract tests passed");

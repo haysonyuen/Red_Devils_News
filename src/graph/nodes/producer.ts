@@ -223,7 +223,6 @@ export function buildProducerRejectionUpdate(
     visualEvaluation: null,
     visualRegenerationCount: 0,
     editorialBrief: null,
-    imagePrompt: null,
     factCheckStatus: "PENDING",
     factCheckIssues: [],
     factCheckClaims: [],

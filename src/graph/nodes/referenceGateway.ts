@@ -70,7 +70,6 @@ export function waitForReferencesNode(
         compositionMode: "CONCEPTUAL",
         referenceRequirements: [],
       },
-      imagePrompt: state.visualBrief.conceptualFallbackPrompt,
     };
   }
 

@@ -1,33 +1,33 @@
 # Man Utd Agentic News Pipeline
 
-Automated LangGraph.js pipeline with three cooperating editorial agents: Scout → Editor/Producer → Fact Checker. Deterministic services handle news ingestion, image generation, Slack approval, and Instagram publishing.
+Automated LangGraph.js pipeline with four cooperating newsroom agents: Scout → Editor/Caption Producer → Fact Checker → Visual Producer. Deterministic services handle ingestion, reference approval, image generation, candidate scoring, Slack decisions, and Instagram publishing.
 
 ## Architecture
 
 ```
-Cron (08:00 / 16:00 / 00:00 UK)
-  └─▶ [ingest]       BBC Sport RSS + Cheerio scrape (allow/blocklist enforced)
-        ├──(no valid articles)──▶ END
-        └─▶ [scout agent]       Select current story and supporting articles
-              └─▶ [producer agent]    Create grounded narrative, caption, and image prompt
-                    └─▶ [fact checker agent]
-                          ├──(REVISE, once)──▶ [producer agent]
-                          ├──(REJECT)────────▶ END
-                          └──(PASS)──────────▶ [imageGen] FAL.ai → Cloudinary
-                                                   └─▶ [slackGateway] approval
-                                                         ├──(APPROVED)──▶ [publish]
-                                                         └──(REJECTED)──▶ END
+Cron → ingest → Scout → Editor/Caption Producer → Fact Checker
+  → Visual Producer brief
+      ├─ people story → Slack reference upload/source/approval → FAL
+      └─ conceptual story → FAL
+  → Cloudinary buffers 3 public candidates
+  → Visual Producer evaluates candidates against deterministic thresholds
+  → Slack candidate selection
+  → separate Slack final approval
+      ├─ APPROVED → Meta publish selectedCandidate.publicUrl
+      └─ REJECTED → END
 ```
 
 State persists in **SQLite** (`checkpoints.db`) — a Slack button click resumes the exact LangGraph thread.
 
 ## Persona Consistency
 
-- Versioned prompts live in `prompts/producer.v1.md` and `prompts/fact-checker.v1.md`.
+- Versioned prompts live in `prompts/scout.v2.md`, `prompts/producer.v2.md`, `prompts/fact-checker.v2.md`, and `prompts/visual-producer.v1.md`.
 - OpenAI Structured Outputs enforce strict JSON schemas for every agent.
+- The Producer creates captions only. It cannot generate image prompts.
 - Producer captions are checked in code for supporter voice, length, hashtag count, banned clichés, a discussion question, and copied source phrasing.
 - Deterministic failures trigger one Producer revision, then stop.
 - The Fact Checker records every claim as `SUPPORTED`, `UNSUPPORTED`, or `OPINION`, with evidence and a source URL.
+- The Visual Producer creates the fact-bounded visual brief, generation request, and candidate evaluation. Deterministic thresholds decide whether a candidate qualifies.
 - Regression fixtures live in `src/evals/persona.fixtures.json`.
 
 Run all checks with:
@@ -86,18 +86,24 @@ npm run dev:now
 | Variable | Purpose |
 |---|---|
 | `LLM_BASE_URL` | OpenAI-compatible endpoint; defaults to local Ollama |
-| `LLM_MODEL` | Default model used by all three agents |
+| `LLM_MODEL` | Default model used by all four agents |
 | `LLM_SCOUT_MODEL` | Optional Scout-specific model |
 | `LLM_PRODUCER_MODEL` | Optional Editor/Producer-specific model |
 | `LLM_FACT_CHECKER_MODEL` | Optional Fact Checker-specific model |
+| `LLM_VISUAL_PRODUCER_MODEL` | Optional Visual Producer text model |
+| `LLM_VISUAL_MODEL` | Vision-capable model for candidate evaluation |
 | `LLM_API_KEY` | Hosted-provider key; leave blank for local Ollama |
 | `FAL_KEY` | FAL.ai image generation |
+| `FAL_REFERENCE_MODEL` | Referenced image model; defaults to `fal-ai/flux-2-pro/edit` |
+| `FAL_CONCEPT_MODEL` | Conceptual image model; defaults to `fal-ai/flux-2-pro` |
 | `CLOUDINARY_URL` | `cloudinary://key:secret@cloud_name` |
 | `META_GRAPH_TOKEN` | Long-lived Instagram publishing token |
 | `META_IG_ACCOUNT_ID` | Target IG account ID |
 | `SLACK_BOT_TOKEN` | Slack Bot token (xoxb-…) |
 | `SLACK_SIGNING_SECRET` | Slack app signing secret |
 | `SLACK_CHANNEL_ID` | Private channel for approval cards |
+| `REFERENCE_TIMEOUT_MINUTES` | Reference collection deadline; defaults to 30 |
+| `REFERENCE_DB_PATH` | Persistent reference workflow SQLite path |
 | `TZ` | Set to `Europe/London` for UK cron times |
 | `WEBHOOK_PORT` | Express port for Slack webhooks (default: 4242) |
 
@@ -111,10 +117,16 @@ Enforcement is hardcoded in [`src/mcp/server.ts`](src/mcp/server.ts) — bad dat
 
 ## Slack Setup
 
-1. Create a Slack App with **Interactive Components** enabled
-2. Set the Request URL to `https://your-ngrok-url/slack/actions`
-3. Add Bot Token Scopes: `chat:write`, `files:write`
-4. Install to your workspace and copy `SLACK_BOT_TOKEN` + `SLACK_SIGNING_SECRET`
+1. Create a Slack App and invite it to the private approvals channel.
+2. Set Interactivity Request URL to `https://<ngrok-host>/slack/actions`.
+3. Enable Events and set Request URL to `https://<ngrok-host>/slack/events`.
+4. Add Bot Token Scopes: `chat:write`, `files:read`, `groups:history`.
+5. Subscribe to the bot event `message.groups`.
+6. Install the app and set `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, and `SLACK_CHANNEL_ID`.
+
+For a person-based visual, reply in the reference thread with the person's name, one image, and the image's source-page URL. Uploading a file does not approve it; a separate approval click is required. Reference files are stored privately and their URLs are never included in the publish payload.
+
+Candidate selection is not permission to publish. The selected image and caption receive a separate final `Approve & Publish` decision before Meta is called.
 
 ## Meta / Instagram Setup
 
@@ -134,10 +146,12 @@ src/
 │   └── nodes/
 │       ├── ingest.ts          # BBC RSS discovery + Cheerio scrape
 │       ├── scout.ts           # Agent 1: story selection
-│       ├── producer.ts        # Agent 2: editorial brief + creative draft
-│       ├── factChecker.ts     # Agent 3: evidence audit + revision decision
+│       ├── producer.ts        # Agent 2: supporter caption
+│       ├── factChecker.ts     # Agent 3: evidence + visual boundaries
+│       ├── visualProducer.ts  # Agent 4: visual brief, request, evaluation
 │       ├── imageGen.ts        # FAL.ai + Cloudinary buffer
-│       ├── slackGateway.ts    # Slack Block Kit + interrupt()
+│       ├── referenceGateway.ts# Reference post + wait stages
+│       ├── slackGateway.ts    # Candidate and final approval stages
 │       └── publish.ts         # Meta Graph API publish
 ├── llm/
 │   └── client.ts              # Shared OpenAI-compatible JSON client
@@ -154,14 +168,19 @@ src/
 ├── mcp/
 │   ├── server.ts              # Local MCP server (search + scrape tools)
 │   └── server.test.ts         # Allowlist/blocklist unit tests
+├── references/                # Persistent reference workflow
+├── slack/                     # Block Kit builders
+├── visual/                    # FAL, Cloudinary, certainty, scoring
 └── webhooks/
-    └── slack.ts               # Express router: POST /slack/actions
+    └── slack.ts               # POST /slack/actions and /slack/events
 ```
 
 Project-root persona files:
 
 ```
 prompts/
-├── producer.v1.md
-└── fact-checker.v1.md
+├── scout.v2.md
+├── producer.v2.md
+├── fact-checker.v2.md
+└── visual-producer.v1.md
 ```

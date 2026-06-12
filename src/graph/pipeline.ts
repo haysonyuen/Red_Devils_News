@@ -55,8 +55,8 @@ export function routeAfterProducer(
 
 export function routeAfterFactCheck(
   state: typeof PipelineStateAnnotation.State
-): "producer" | "visualBrief" | "imageGen" | "__end__" {
-  if (state.factCheck?.status === "PASS") return "visualBrief";
+): "producer" | "createVisualBrief" | "imageGen" | "__end__" {
+  if (state.factCheck?.status === "PASS") return "createVisualBrief";
   const status = state.factCheck?.status ?? state.factCheckStatus;
   // Preserve the legacy status-only path while grouped fact checks migrate.
   if (!state.factCheck && status === "PASS") return "imageGen";
@@ -92,8 +92,8 @@ export function routeAfterReferences(
 
 export function routeAfterImage(
   state: typeof PipelineStateAnnotation.State
-): "visualEvaluation" | "__end__" {
-  return state.generatedCandidates.length > 0 ? "visualEvaluation" : "__end__";
+): "evaluateVisuals" | "__end__" {
+  return state.generatedCandidates.length > 0 ? "evaluateVisuals" : "__end__";
 }
 
 export function routeAfterVisualEvaluation(
@@ -128,11 +128,11 @@ export function buildPipeline(checkpointer: SqliteSaver) {
     .addNode("scout", scoutNode)
     .addNode("producer", producerNode)
     .addNode("factChecker", factCheckerNode)
-    .addNode("visualBrief", visualBriefNode)
+    .addNode("createVisualBrief", visualBriefNode)
     .addNode("postReferenceRequest", postReferenceRequestNode)
     .addNode("waitForReferences", waitForReferencesNode)
     .addNode("imageGen", imageGenNode)
-    .addNode("visualEvaluation", visualEvaluationNode)
+    .addNode("evaluateVisuals", visualEvaluationNode)
     .addNode("postCandidates", (state) => postCandidateSelectionNode(state))
     .addNode("waitForCandidateSelection", waitForCandidateSelectionNode)
     .addNode("postFinalApproval", (state) => postFinalApprovalNode(state))
@@ -155,11 +155,11 @@ export function buildPipeline(checkpointer: SqliteSaver) {
     })
     .addConditionalEdges("factChecker", routeAfterFactCheck, {
       producer: "producer",
-      visualBrief: "visualBrief",
+      createVisualBrief: "createVisualBrief",
       imageGen: "imageGen",
       __end__: END,
     })
-    .addConditionalEdges("visualBrief", routeAfterVisualBrief, {
+    .addConditionalEdges("createVisualBrief", routeAfterVisualBrief, {
       imageGen: "imageGen",
       referenceGateway: "postReferenceRequest",
       __end__: END,
@@ -170,10 +170,10 @@ export function buildPipeline(checkpointer: SqliteSaver) {
       __end__: END,
     })
     .addConditionalEdges("imageGen", routeAfterImage, {
-      visualEvaluation: "visualEvaluation",
+      evaluateVisuals: "evaluateVisuals",
       __end__: END,
     })
-    .addConditionalEdges("visualEvaluation", routeAfterVisualEvaluation, {
+    .addConditionalEdges("evaluateVisuals", routeAfterVisualEvaluation, {
       candidateSelection: "postCandidates",
       imageGen: "imageGen",
       __end__: END,

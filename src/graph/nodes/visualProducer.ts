@@ -533,8 +533,10 @@ export async function createGenerationRequest(
   );
 
   if (state.visualBrief.compositionMode === "CONCEPTUAL") {
-    const generationPrompt =
-      state.imagePrompt ?? state.visualBrief.conceptualFallbackPrompt;
+    const fallbackUsed = state.referenceRequests.length > 0;
+    const generationPrompt = fallbackUsed
+      ? state.visualBrief.conceptualFallbackPrompt
+      : state.visualBrief.generationPromptTemplate;
     assertVisualRequestAllowed(
       state.factCheck.storyStatus,
       generationPrompt,
@@ -547,7 +549,7 @@ export async function createGenerationRequest(
       approvedReferenceIds: [],
       generationPrompt,
       candidateCount: 3,
-      fallbackUsed: state.referenceRequests.length > 0,
+      fallbackUsed,
     };
   }
 
@@ -689,7 +691,6 @@ export async function visualEvaluationNode(
           compositionMode: "CONCEPTUAL",
           referenceRequirements: [],
         },
-        imagePrompt: visualBrief.conceptualFallbackPrompt,
       };
     }
     return {
@@ -712,18 +713,11 @@ export async function visualBriefNode(
 ): Promise<Partial<PipelineState>> {
   try {
     const visualBrief = await createVisualBrief(state);
-    return {
-      visualBrief,
-      imagePrompt:
-        visualBrief.compositionMode === "CONCEPTUAL"
-          ? visualBrief.generationPromptTemplate
-          : null,
-    };
+    return { visualBrief };
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     return {
       visualBrief: null,
-      imagePrompt: null,
       errorLog: [`[visualProducer] ${message}`],
     };
   }

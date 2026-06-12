@@ -320,7 +320,6 @@ const rescoutUpdate = buildProducerRejectionUpdate(
       facts: producer.facts,
       context: "Old context",
     },
-    imagePrompt: "Old image prompt",
     generatedImageUrl: "https://example.com/old-image.jpg",
     visualBrief: {
       storyHook: "Old hook",
@@ -360,7 +359,6 @@ const expectedRescoutReset = {
   draftCaption: null,
   producerValidationIssues: [],
   editorialBrief: null,
-  imagePrompt: null,
   generatedImageUrl: null,
   visualBrief: null,
   referenceRequests: [],

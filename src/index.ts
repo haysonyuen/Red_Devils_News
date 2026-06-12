@@ -61,7 +61,6 @@ async function runPipeline(): Promise<void> {
     scoutBrief: null,
     editorialBrief: null,
     draftCaption: null,
-    imagePrompt: null,
     producerValidationIssues: [],
     factCheckStatus: "PENDING" as const,
     factCheckIssues: [],
