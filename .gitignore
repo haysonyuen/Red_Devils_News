@@ -4,3 +4,6 @@ dist/
 node_modules/
 *.js.map
 .worktrees/
+reference-workflow.db
+reference-workflow.db-shm
+reference-workflow.db-wal
