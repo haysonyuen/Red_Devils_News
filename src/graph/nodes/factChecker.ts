@@ -209,11 +209,14 @@ export function normalizeFactCheckOutput(
     }
     return { ...check, sourceUrl };
   });
-  const requestedStatus =
-    output.status === "PASS" &&
-    claimChecks.some((check) => check.verdict === "UNSUPPORTED")
-      ? "REVISE"
-      : output.status;
+  const hasUnsupportedClaim = claimChecks.some(
+    (check) => check.verdict === "UNSUPPORTED"
+  );
+  const requestedStatus = hasUnsupportedClaim
+    ? output.status === "REJECT"
+      ? "REJECT"
+      : "REVISE"
+    : "PASS";
   const status =
     requestedStatus === "REVISE" && revisionCount >= 1
       ? "REJECT"

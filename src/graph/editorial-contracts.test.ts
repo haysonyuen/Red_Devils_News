@@ -12,7 +12,10 @@ import {
   buildProducerRejectionUpdate,
   parseProducerOutput,
 } from "./nodes/producer";
-import { prepareFactCheckerHandoff } from "./nodes/factChecker";
+import {
+  normalizeFactCheckOutput,
+  prepareFactCheckerHandoff,
+} from "./nodes/factChecker";
 import { routeAfterProducer, routeAfterScout } from "./pipeline";
 import { PipelineStateAnnotation } from "./state";
 
@@ -263,6 +266,31 @@ if (
 ) {
   throw new Error(
     "Fact Checker handoff should contain the accepted ProducerOutput, caption, and selected evidence"
+  );
+}
+
+const opinionOnlyRevision = normalizeFactCheckOutput(
+  {
+    ...factCheck,
+    status: "REVISE",
+    claimChecks: [
+      factCheck.claimChecks[0],
+      {
+        claim: "If we are ahead, is this the midfielder our rebuild needs?",
+        verdict: "OPINION",
+        evidence: "Supporter judgment framed as a question.",
+        sourceUrl: null,
+      },
+    ],
+    issues: ["Keep the supporter question clearly framed as opinion."],
+    revisionFeedback: "Frame the supporter question as opinion.",
+  },
+  [sourceUrl],
+  1
+);
+if (opinionOnlyRevision.status !== "PASS") {
+  throw new Error(
+    "An audit with only supported facts and opinion must pass after revision"
   );
 }
 
