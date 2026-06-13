@@ -11,6 +11,7 @@ import {
   buildAcceptedProducerUpdate,
   buildProducerRejectionUpdate,
   parseProducerOutput,
+  PRODUCER_SCHEMA,
 } from "./nodes/producer";
 import {
   normalizeFactCheckOutput,
@@ -116,6 +117,12 @@ expectThrows("contradictory NO_STORY", () =>
 );
 
 parseProducerOutput(producer);
+if (
+  (PRODUCER_SCHEMA.properties.decisionReason as { minLength?: number })
+    .minLength !== 1
+) {
+  throw new Error("Producer schema must reject an empty decisionReason");
+}
 parseProducerOutput({
   decision: "REJECT_AND_RESCOUT",
   decisionReason: "The available reporting is too thin for a useful post",

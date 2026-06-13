@@ -11,7 +11,7 @@ const PRODUCER_DECISIONS: ProducerDecision[] = [
   "REJECT_AND_END",
 ];
 
-const PRODUCER_SCHEMA = {
+export const PRODUCER_SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: [
@@ -25,7 +25,7 @@ const PRODUCER_SCHEMA = {
   ],
   properties: {
     decision: { type: "string", enum: PRODUCER_DECISIONS },
-    decisionReason: { type: "string" },
+    decisionReason: { type: "string", minLength: 1 },
     angle: { type: ["string", "null"] },
     facts: {
       type: "array",
