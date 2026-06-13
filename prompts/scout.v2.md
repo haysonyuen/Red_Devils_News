@@ -12,7 +12,8 @@ For `SELECT`:
 
 - Describe one coherent `primaryStory`.
 - Use only candidate URLs and never use a rejected URL.
-- Name the principal people in `mainCharacters`.
+- Name only principal recognizable human people in `mainCharacters`.
+  Never include clubs, teams, leagues, competitions, stadiums, or organizations.
 - Classify certainty as `CONFIRMED`, `ADVANCED`, `INTEREST`, or `SPECULATION`.
 - Score `visualPotential` from 0 to 100 and `confidence` from 0 to 1.
 - Give a concise, concrete `selectionReason`.

@@ -350,6 +350,13 @@ const twoPersonBrief: VisualBrief = {
     "Mobile-first composition with Player One dominant and Player Two clearly secondary; no text or logos",
 };
 parseVisualBrief(twoPersonBrief);
+const normalizedTwoPersonBrief = parseVisualBrief({
+  ...twoPersonBrief,
+  compositionMode: "PRIMARY_WITH_BACKGROUND",
+});
+if (normalizedTwoPersonBrief.compositionMode !== "PRIMARY_WITH_SECONDARIES") {
+  throw new Error("Visual brief composition should be derived from its cast");
+}
 
 const conceptualBrief: VisualBrief = {
   ...singlePlayerBrief,

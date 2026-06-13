@@ -277,6 +277,12 @@ export function parseVisualBrief(value: unknown): VisualBrief {
     conceptualFallbackPrompt: value.conceptualFallbackPrompt,
     referenceWarning: value.referenceWarning,
   };
+  brief.compositionMode =
+    brief.primaryCharacter === null
+      ? "CONCEPTUAL"
+      : brief.secondaryCharacters.length > 0
+        ? "PRIMARY_WITH_SECONDARIES"
+        : "PRIMARY_WITH_BACKGROUND";
 
   if (containsUrlLikeString(brief.generationPromptTemplate)) {
     throw new Error("Visual brief generationPromptTemplate cannot contain URLs");
@@ -308,18 +314,6 @@ export function parseVisualBrief(value: unknown): VisualBrief {
 
   if (!brief.primaryCharacter) {
     throw new Error("People-based visual briefs require a primary character");
-  }
-  if (
-    brief.compositionMode === "PRIMARY_WITH_BACKGROUND" &&
-    brief.secondaryCharacters.length !== 0
-  ) {
-    throw new Error("Background composition cannot include secondary characters");
-  }
-  if (
-    brief.compositionMode === "PRIMARY_WITH_SECONDARIES" &&
-    brief.secondaryCharacters.length === 0
-  ) {
-    throw new Error("Secondary composition requires a secondary character");
   }
   if (brief.referenceRequirements.length !== cast.length) {
     throw new Error("Visual brief references must exactly match the cast");

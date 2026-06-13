@@ -34,6 +34,8 @@ const SCOUT_SCHEMA = {
     },
     mainCharacters: {
       type: "array",
+      description:
+        "Principal recognizable human people only; never clubs, teams, leagues, stadiums, or organizations.",
       items: { type: "string" },
     },
     storyStatus: {
