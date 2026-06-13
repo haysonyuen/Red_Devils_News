@@ -48,12 +48,18 @@ The requested full name is resolved through Wikidata. A usable identity must:
 - represent a human football player, coach, or football executive;
 - expose a Wikidata entity ID;
 - expose a `P18` portrait;
+- expose current-club membership through a non-ended `P54` statement when one
+  is available;
 - provide football context sufficient to disambiguate names when multiple
   entities match.
 
 The `P18` image is the first trusted identity anchor. It is not published and
 is used only for face comparison. A previously human-approved official
 reference for the same Wikidata entity may also be used as an anchor.
+
+Current club domains are resolved from each active `P54` club entity's `P856`
+official website statement. A player's personal `P856` website does not become
+an approved club domain.
 
 If identity resolution is ambiguous or has no portrait, recognizable-person
 discovery fails closed.
@@ -70,8 +76,8 @@ Initial approved domains:
 - `thefa.com`
 - `uefa.com`
 - `fifa.com`
-- official current club domains identified by a trusted Wikidata official
-  website statement
+- official current club domains resolved through the player's active Wikidata
+  `P54` club membership and that club's `P856` official website statement
 
 Search is bounded to avoid unnecessary requests:
 
