@@ -209,6 +209,19 @@ assertVisualRequestAllowed(
   "INTEREST",
   "Do not show a destination kit; keep the player in current clothing"
 );
+assertVisualRequestAllowed(
+  "INTEREST",
+  "The image must not imply a medical or completed transfer"
+);
+expectThrows(
+  "affirmative medical scene",
+  () =>
+    assertVisualRequestAllowed(
+      "INTEREST",
+      "Show the player completing a medical"
+    ),
+  "medical"
+);
 expectThrows(
   "unrelated negation must not hide destination kit",
   () =>
