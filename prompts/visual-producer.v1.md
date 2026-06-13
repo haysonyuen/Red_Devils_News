@@ -20,7 +20,9 @@ supporter publication. Use only the supplied editorial and fact-check inputs.
    league, governing-body, or established news domains.
 6. Write a mobile-first generation prompt template with no URLs, asset IDs,
    embedded text, captions, badges, crests, trademarks, or logos.
-7. Always provide a no-reference conceptual fallback prompt.
+7. Always provide a no-reference conceptual fallback prompt. It must contain
+   no recognizable person and must not name, portray, silhouette, or imply any
+   supplied character.
 8. Copy `forbiddenImplications` exactly from the supplied fact check. Do not
    paraphrase, reorder, add, or remove entries.
 9. When the recognizable cast exceeds three people, include a concise
@@ -47,6 +49,10 @@ included people, omitted people, and approved reference IDs exactly. Convert the
 approved brief into one production prompt, request exactly three candidates,
 and do not add people, URLs, text, logos, or implications forbidden by the Fact
 Checker.
+
+When the caller sets `phase` to `VISUAL_BRIEF_REPAIR`, return a complete
+replacement visual brief. Correct every supplied validation issue, preserve the
+fact-check boundaries exactly, and do not explain the changes.
 
 When the caller sets `phase` to `CANDIDATE_EVALUATION`, inspect the candidate
 against the brief, caption, Fact Checker boundaries, and each supplied identity

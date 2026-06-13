@@ -34,7 +34,7 @@ function containsConcept(text: string, concept: string): boolean {
     const escaped = normalizedConcept.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const occurrences = new RegExp(`\\b${escaped}\\b`, "g");
     const negated = new RegExp(
-      `\\b(?:(?:do|does|must|should|could|may|can)\\s+not|cannot|dont|doesnt|never|without|avoid|no)\\s+(?:(?:show|depict|include|use|wear|imply|suggest|present|portray|feature)\\s+)?(?:(?:a|an|the)\\s*)?$`
+      `\\b(?:(?:do|does|must|should|could|may|can)\\s+not|cannot|dont|doesnt|never|without|avoid|no)\\s+(?:any\\s+)?(?:(?:depiction|image|scene|portrayal|representation)\\s+of\\s+)?(?:(?:show|showing|depict|depicting|include|including|use|using|wear|wearing|imply|implying|suggest|suggesting|present|presenting|portray|portraying|feature|featuring)\\s+)?(?:(?:a|an|the)\\s*)?$`
     );
     let occurrence: RegExpExecArray | null;
     while ((occurrence = occurrences.exec(clause)) !== null) {
