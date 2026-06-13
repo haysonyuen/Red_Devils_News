@@ -89,7 +89,19 @@ function state(
       referenceWarning: null,
     },
     referenceRequests: [],
-    referenceCandidates: [],
+    referenceCandidates: [
+      {
+        id: "reference-candidate-1",
+        requestId: "reference-1",
+        person: "Marcus Rashford",
+        imageUrl: "https://ichef.bbci.co.uk/images/rashford.jpg",
+        sourcePageUrl: "https://example.com/source-page",
+        origin: "SELECTED_ARTICLE",
+        rank: 1,
+        status: "APPROVED",
+        discoveredAt: "2026-06-13T12:00:00.000Z",
+      },
+    ],
     referenceApprovals: [
       {
         requestId: "reference-1",
@@ -155,9 +167,13 @@ async function testSeparatedSlackStages(): Promise<void> {
   const finalPayload = JSON.stringify(posts[1]);
   if (
     !finalPayload.includes(selectedCandidate.publicUrl) ||
-    finalPayload.includes("private/reference-1")
+    finalPayload.includes("private/reference-1") ||
+    finalPayload.includes("ichef.bbci.co.uk") ||
+    finalPayload.includes("man-utd-pipeline/references/")
   ) {
-    throw new Error("Final card must use the public candidate and hide private references");
+    throw new Error(
+      "Final card must use only the generated public candidate"
+    );
   }
 }
 
@@ -254,6 +270,27 @@ async function testReferenceDiscoveryGateway(): Promise<void> {
       "slack-thread-1"
     ) {
       throw new Error("Gateway should persist the Slack thread timestamp");
+    }
+
+    const restartState = state({ runId: "thread-restart" });
+    coordinator.createRequests(
+      restartState.runId,
+      restartState.runId,
+      restartState.visualBrief as NonNullable<PipelineState["visualBrief"]>
+    );
+    const restartPosts: Array<Record<string, unknown>> = [];
+    await postReferenceRequestNode(restartState, {
+      coordinator,
+      discover: async () => [],
+      postMessage: async (message) => {
+        restartPosts.push(message);
+        return { ts: "slack-thread-restart" };
+      },
+    });
+    if (restartPosts.length !== 1) {
+      throw new Error(
+        "A restart before Slack posting should still publish the reference card"
+      );
     }
   } finally {
     store.close();

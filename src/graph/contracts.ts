@@ -18,8 +18,6 @@ export type ReferenceRole = "PRIMARY" | "SECONDARY";
 
 export type ReferenceStatus =
   | "AWAITING_CANDIDATE"
-  | "AWAITING_UPLOAD"
-  | "AWAITING_SOURCE"
   | "AWAITING_DECISION"
   | "APPROVED"
   | "REJECTED"
@@ -111,10 +109,6 @@ export interface ReferenceRequest {
   status: ReferenceStatus;
   attempt: number;
   activeCandidateId: string | null;
-  slackFileId: string | null;
-  privateDownloadUrl: string | null;
-  sourcePageUrl: string | null;
-  uploaderId: string | null;
   approverId: string | null;
   decisionAt: string | null;
   deadlineAt: string;

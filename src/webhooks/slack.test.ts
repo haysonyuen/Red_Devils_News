@@ -179,6 +179,11 @@ async function run(): Promise<void> {
     ) {
       throw new Error("Reference approval should resume its graph exactly once");
     }
+    if (resumes[0].value === "APPROVED") {
+      throw new Error(
+        "Reference approval must not act as final publish approval"
+      );
+    }
 
     const retryRequest = coordinator.createRequests(
       "run-retry",

@@ -1,4 +1,8 @@
-import { GenerationRequest, ReferenceRequest } from "../graph/contracts";
+import {
+  GenerationRequest,
+  ReferenceCandidate,
+  ReferenceRequest,
+} from "../graph/contracts";
 import { CloudinaryAssetService } from "./cloudinary";
 import { generateFalCandidates } from "./fal";
 
@@ -31,35 +35,47 @@ async function run(): Promise<void> {
     person: "Player One",
     role: "PRIMARY",
     required: true,
-  status: "APPROVED",
-  attempt: 1,
-  activeCandidateId: null,
-    slackFileId: "file-1",
-    privateDownloadUrl: "https://files.slack.com/file-1",
-    sourcePageUrl: "https://www.bbc.com/sport/football/articles/example",
-    uploaderId: "user-1",
+    status: "APPROVED",
+    attempt: 1,
+    activeCandidateId: "reference-candidate-1",
     approverId: "approver-1",
     decisionAt: "2026-06-12T12:00:00.000Z",
     deadlineAt: "2026-06-12T12:30:00.000Z",
   };
-  const privateAsset = await assetService.bufferReference(
+  const referenceCandidate: ReferenceCandidate = {
+    id: "reference-candidate-1",
+    requestId: request.id,
+    person: request.person,
+    imageUrl: "https://ichef.bbci.co.uk/images/player.jpg",
+    sourcePageUrl:
+      "https://www.bbc.com/sport/football/articles/example",
+    origin: "SELECTED_ARTICLE",
+    rank: 1,
+    status: "APPROVED",
+    discoveredAt: "2026-06-13T12:00:00.000Z",
+  };
+  const privateAsset = await assetService.bufferDiscoveredReference(
     request,
-    "slack-token"
+    referenceCandidate
   );
   const downloadOptions = downloads[0].options as {
     headers?: Record<string, string>;
   };
-  if (downloadOptions.headers?.Authorization !== "Bearer slack-token") {
-    throw new Error("Slack private download must use the bot token");
+  if (downloadOptions.headers !== undefined) {
+    throw new Error("Public reference downloads must not use Slack credentials");
   }
   if (
     uploads[0].options.type !== "authenticated" ||
     !String(uploads[0].options.public_id).includes(
       "man-utd-pipeline/references/run-1"
     ) ||
-    !privateAsset.signedUrl.includes("authenticated")
+    !privateAsset.signedUrl.includes("authenticated") ||
+    privateAsset.approvedReference.sourcePageUrl !==
+      referenceCandidate.sourcePageUrl
   ) {
-    throw new Error("References must be uploaded privately with a signed URL");
+    throw new Error(
+      "Discovered references must be private and preserve provenance"
+    );
   }
 
   await assetService.bufferCandidate(

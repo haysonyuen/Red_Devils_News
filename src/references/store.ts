@@ -16,10 +16,6 @@ type ReferenceRow = {
   status: ReferenceStatus;
   attempt: number;
   active_candidate_id: string | null;
-  slack_file_id: string | null;
-  private_download_url: string | null;
-  source_page_url: string | null;
-  uploader_id: string | null;
   approver_id: string | null;
   decision_at: string | null;
   deadline_at: string;
@@ -48,10 +44,6 @@ function toReferenceRequest(row: ReferenceRow): ReferenceRequest {
     status: row.status,
     attempt: row.attempt,
     activeCandidateId: row.active_candidate_id,
-    slackFileId: row.slack_file_id,
-    privateDownloadUrl: row.private_download_url,
-    sourcePageUrl: row.source_page_url,
-    uploaderId: row.uploader_id,
     approverId: row.approver_id,
     decisionAt: row.decision_at,
     deadlineAt: row.deadline_at,
@@ -88,10 +80,6 @@ export class ReferenceStore {
         status TEXT NOT NULL,
         attempt INTEGER NOT NULL,
         active_candidate_id TEXT,
-        slack_file_id TEXT,
-        private_download_url TEXT,
-        source_page_url TEXT,
-        uploader_id TEXT,
         approver_id TEXT,
         decision_at TEXT,
         deadline_at TEXT NOT NULL
@@ -130,9 +118,8 @@ export class ReferenceStore {
       .prepare(`
         INSERT INTO reference_requests (
           id, run_id, thread_ts, person, role, required, status, attempt,
-          active_candidate_id, slack_file_id, private_download_url,
-          source_page_url, uploader_id, approver_id, decision_at, deadline_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          active_candidate_id, approver_id, decision_at, deadline_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         request.id,
@@ -144,10 +131,6 @@ export class ReferenceStore {
         request.status,
         request.attempt,
         request.activeCandidateId,
-        request.slackFileId,
-        request.privateDownloadUrl,
-        request.sourcePageUrl,
-        request.uploaderId,
         request.approverId,
         request.decisionAt,
         request.deadlineAt
@@ -254,8 +237,6 @@ export class ReferenceStore {
         FROM reference_requests
         WHERE status IN (
           'AWAITING_CANDIDATE',
-          'AWAITING_UPLOAD',
-          'AWAITING_SOURCE',
           'AWAITING_DECISION'
         )
           AND deadline_at <= ?
@@ -277,10 +258,6 @@ export class ReferenceStore {
           status = ?,
           attempt = ?,
           active_candidate_id = ?,
-          slack_file_id = ?,
-          private_download_url = ?,
-          source_page_url = ?,
-          uploader_id = ?,
           approver_id = ?,
           decision_at = ?,
           deadline_at = ?
@@ -290,10 +267,6 @@ export class ReferenceStore {
         request.status,
         request.attempt,
         request.activeCandidateId,
-        request.slackFileId,
-        request.privateDownloadUrl,
-        request.sourcePageUrl,
-        request.uploaderId,
         request.approverId,
         request.decisionAt,
         request.deadlineAt,

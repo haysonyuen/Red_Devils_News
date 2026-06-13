@@ -9,8 +9,6 @@ import { ReferenceStore } from "./store";
 
 const ACTIVE_STATUSES: ReferenceStatus[] = [
   "AWAITING_CANDIDATE",
-  "AWAITING_UPLOAD",
-  "AWAITING_SOURCE",
   "AWAITING_DECISION",
 ];
 
@@ -32,13 +30,6 @@ export interface ReferenceDecisionResult {
 
 function normalizePerson(person: string): string {
   return person.trim().toLocaleLowerCase();
-}
-
-function nextCollectionStatus(request: ReferenceRequest): ReferenceStatus {
-  if (request.slackFileId && request.sourcePageUrl) {
-    return "AWAITING_DECISION";
-  }
-  return request.slackFileId ? "AWAITING_SOURCE" : "AWAITING_UPLOAD";
 }
 
 export class ReferenceCoordinator {
@@ -73,10 +64,6 @@ export class ReferenceCoordinator {
       status: "AWAITING_CANDIDATE" as const,
       attempt: 1,
       activeCandidateId: null,
-      slackFileId: null,
-      privateDownloadUrl: null,
-      sourcePageUrl: null,
-      uploaderId: null,
       approverId: null,
       decisionAt: null,
       deadlineAt,
@@ -205,99 +192,6 @@ export class ReferenceCoordinator {
       });
     }
     return this.resolve(runId);
-  }
-
-  attachUpload(
-    requestId: string,
-    person: string,
-    slackFileId: string,
-    privateDownloadUrl: string,
-    uploaderId: string
-  ): ReferenceRequest {
-    const request = this.requireActive(requestId);
-    if (normalizePerson(person) !== normalizePerson(request.person)) {
-      throw new Error("Uploaded reference does not match the requested person");
-    }
-    if (!slackFileId || !privateDownloadUrl || !uploaderId) {
-      throw new Error("Reference upload metadata is incomplete");
-    }
-
-    const updated: ReferenceRequest = {
-      ...request,
-      slackFileId,
-      privateDownloadUrl,
-      uploaderId,
-    };
-    updated.status = nextCollectionStatus(updated);
-    this.store.update(updated);
-    return updated;
-  }
-
-  attachSource(requestId: string, sourcePageUrl: string): ReferenceRequest {
-    const request = this.requireActive(requestId);
-    let source: URL;
-    try {
-      source = new URL(sourcePageUrl);
-    } catch {
-      throw new Error("Reference source URL is invalid");
-    }
-    if (!["http:", "https:"].includes(source.protocol)) {
-      throw new Error("Reference source URL must use HTTP or HTTPS");
-    }
-
-    const updated: ReferenceRequest = {
-      ...request,
-      sourcePageUrl: source.toString(),
-    };
-    updated.status = nextCollectionStatus(updated);
-    this.store.update(updated);
-    return updated;
-  }
-
-  decide(
-    requestId: string,
-    decision: "APPROVED" | "REJECTED",
-    approverId: string,
-    decidedAt = new Date()
-  ): ReferenceRequest {
-    const request = this.requireRequest(requestId);
-    if (request.status !== "AWAITING_DECISION") {
-      throw new Error("Reference is not ready for a decision");
-    }
-    if (!request.slackFileId || !request.sourcePageUrl) {
-      throw new Error("Reference requires both an upload and source URL");
-    }
-
-    if (decision === "REJECTED" && request.role === "PRIMARY" && request.attempt < 2) {
-      const retry: ReferenceRequest = {
-        ...request,
-        status: "AWAITING_UPLOAD",
-        attempt: 2,
-        slackFileId: null,
-        privateDownloadUrl: null,
-        sourcePageUrl: null,
-        uploaderId: null,
-        approverId,
-        decisionAt: decidedAt.toISOString(),
-      };
-      this.store.update(retry);
-      return retry;
-    }
-
-    const status: ReferenceStatus =
-      decision === "APPROVED"
-        ? "APPROVED"
-        : request.role === "SECONDARY"
-          ? "OMITTED"
-          : "REJECTED";
-    const updated: ReferenceRequest = {
-      ...request,
-      status,
-      approverId,
-      decisionAt: decidedAt.toISOString(),
-    };
-    this.store.update(updated);
-    return updated;
   }
 
   timeoutRun(runId: string, now = new Date()): ReferenceResolution {

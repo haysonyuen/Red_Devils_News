@@ -80,9 +80,7 @@ export function routeAfterReferences(
 ): "imageGen" | "__end__" {
   if (state.visualBrief?.compositionMode === "CONCEPTUAL") return "imageGen";
   const pending = state.referenceRequests.some((request) =>
-    ["AWAITING_UPLOAD", "AWAITING_SOURCE", "AWAITING_DECISION"].includes(
-      request.status
-    )
+    ["AWAITING_CANDIDATE", "AWAITING_DECISION"].includes(request.status)
   );
   const primaryApproved = state.referenceRequests.some(
     (request) => request.role === "PRIMARY" && request.status === "APPROVED"

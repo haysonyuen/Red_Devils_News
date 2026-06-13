@@ -44,7 +44,6 @@ export async function postReferenceRequestNode(
       return { ts: response.ts };
     });
   let requests = coordinator.requestsForRun(state.runId);
-  const shouldPost = requests.length === 0;
   if (requests.length === 0) {
     requests = coordinator.createRequests(
       state.runId,
@@ -52,6 +51,9 @@ export async function postReferenceRequestNode(
       state.visualBrief
     );
   }
+  const shouldPost = requests.every(
+    (request) => request.threadTs === state.runId
+  );
 
   for (const request of requests) {
     if (coordinator.candidatesForRun(state.runId).some(

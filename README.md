@@ -119,14 +119,12 @@ Enforcement is hardcoded in [`src/mcp/server.ts`](src/mcp/server.ts) — bad dat
 
 1. Create a Slack App and invite it to the private approvals channel.
 2. Set Interactivity Request URL to `https://<ngrok-host>/slack/actions`.
-3. Enable Events and set Request URL to `https://<ngrok-host>/slack/events`.
-4. Add Bot Token Scopes: `chat:write`, `files:read`, `groups:history`.
-5. Subscribe to the bot event `message.groups`.
-6. Install the app and set `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, and `SLACK_CHANNEL_ID`.
+3. Add the Bot Token Scope `chat:write`.
+4. Install the app and set `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, and `SLACK_CHANNEL_ID`.
 
-For a person-based visual, reply in the reference thread with the person's name, one image, and the image's source-page URL. Uploading a file does not approve it; a separate approval click is required. Reference files are stored privately and their URLs are never included in the publish payload.
+For a person-based visual, the pipeline discovers up to three reference candidates from the selected article's social-preview metadata and directly linked official football pages. The first Slack card contains the finished caption, story sources, visual hook, reference preview, provenance link, and buttons to approve, try the next reference, or use conceptual artwork. No player-name entry, file upload, Brave key, or Perplexity key is required for reference discovery.
 
-Candidate selection is not permission to publish. The selected image and caption receive a separate final `Approve & Publish` decision before Meta is called.
+Reference approval, generated-candidate selection, and final `Approve & Publish` are three separate gates. Only the final gate can call Meta. Approved source images are copied to private Cloudinary storage, and neither source-image URLs nor private asset URLs enter the publish payload.
 
 ## Meta / Instagram Setup
 
@@ -172,7 +170,7 @@ src/
 ├── slack/                     # Block Kit builders
 ├── visual/                    # FAL, Cloudinary, certainty, scoring
 └── webhooks/
-    └── slack.ts               # POST /slack/actions and /slack/events
+    └── slack.ts               # POST /slack/actions
 ```
 
 Project-root persona files:
