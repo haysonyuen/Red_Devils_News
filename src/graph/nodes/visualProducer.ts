@@ -433,8 +433,25 @@ function normalizedText(value: string): string {
 }
 
 function requestsEmbeddedTextOrBranding(value: string): boolean {
+  const target =
+    String.raw`(?:embedded\s+)?(?:text|logo|logos|crest|badge|watermark)`;
+  const withoutNegativeConstraints = value
+    .replace(
+      new RegExp(
+        String.raw`\b(?:no|without)\s+${target}(?:\s*(?:,|or|and)\s*${target})*`,
+        "gi"
+      ),
+      ""
+    )
+    .replace(
+      new RegExp(
+        String.raw`\b(?:do\s+not|don't|never)\s+(?:add|include|show|display|render|use|feature)\s+${target}(?:\s*(?:,|or|and)\s*${target})*`,
+        "gi"
+      ),
+      ""
+    );
   return /\b(?:add|include|show|display|render|with|featuring)\b[^.;,!?\n]*\b(?:text|logo|logos|crest|badge|watermark)\b/i.test(
-    value
+    withoutNegativeConstraints
   );
 }
 

@@ -455,6 +455,14 @@ if (visualInput.story.storyStatus !== validOutput.storyStatus) {
   throw new Error("Visual Producer must use the Fact Checker's reconciled status");
 }
 validateVisualBriefAgainstInput(singlePlayerBrief, visualInput);
+validateVisualBriefAgainstInput(
+  {
+    ...singlePlayerBrief,
+    generationPromptTemplate:
+      "Editorial portrait of Player One with no text, logos, crests, badges, or watermarks",
+  },
+  visualInput
+);
 expectThrows("invented cast member", () =>
   validateVisualBriefAgainstInput(
     {
