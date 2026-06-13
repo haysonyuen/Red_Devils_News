@@ -129,7 +129,9 @@ export function buildPipeline(checkpointer: SqliteSaver) {
     .addNode("producer", producerNode)
     .addNode("factChecker", factCheckerNode)
     .addNode("createVisualBrief", visualBriefNode)
-    .addNode("postReferenceRequest", postReferenceRequestNode)
+    .addNode("postReferenceRequest", (state) =>
+      postReferenceRequestNode(state)
+    )
     .addNode("waitForReferences", waitForReferencesNode)
     .addNode("imageGen", imageGenNode)
     .addNode("evaluateVisuals", visualEvaluationNode)

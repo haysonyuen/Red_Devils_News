@@ -356,6 +356,10 @@ export class ReferenceCoordinator {
     return this.store.listForThread(threadTs);
   }
 
+  candidatesForRun(runId: string): ReferenceCandidate[] {
+    return this.store.listCandidatesForRun(runId);
+  }
+
   expiredRunIds(now = new Date()): string[] {
     return this.store.listExpiredRunIds(now.toISOString());
   }

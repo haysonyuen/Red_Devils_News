@@ -26,37 +26,7 @@ export function buildReferenceRequestBlocks(
   state: PipelineState,
   requests: ReferenceRequest[],
   candidates: ReferenceCandidate[]
-): KnownBlock[];
-export function buildReferenceRequestBlocks(
-  runId: string,
-  brief: NonNullable<PipelineState["visualBrief"]>,
-  requests: ReferenceRequest[]
-): KnownBlock[];
-export function buildReferenceRequestBlocks(
-  stateOrRunId: PipelineState | string,
-  requestsOrBrief:
-    | ReferenceRequest[]
-    | NonNullable<PipelineState["visualBrief"]>,
-  candidatesOrRequests: ReferenceCandidate[] | ReferenceRequest[]
 ): KnownBlock[] {
-  if (typeof stateOrRunId === "string") {
-    return [
-      {
-        type: "header",
-        text: { type: "plain_text", text: "Reference approval required" },
-      },
-      {
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: `*Run:* \`${stateOrRunId}\`\n*Visual hook:* ${(requestsOrBrief as NonNullable<PipelineState["visualBrief"]>).storyHook}`,
-        },
-      },
-    ];
-  }
-  const state = stateOrRunId;
-  const requests = requestsOrBrief as ReferenceRequest[];
-  const candidates = candidatesOrRequests as ReferenceCandidate[];
   const selectedUrls = new Set(state.scoutBrief?.selectedArticleUrls ?? []);
   const sources = state.filteredArticles
     .filter((article) => selectedUrls.has(article.url))

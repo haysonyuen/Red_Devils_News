@@ -187,6 +187,21 @@ export class ReferenceStore {
     return rows.map(toReferenceCandidate);
   }
 
+  listCandidatesForRun(runId: string): ReferenceCandidate[] {
+    const rows = this.db
+      .prepare(`
+        SELECT candidate.*
+        FROM reference_candidates AS candidate
+        JOIN reference_requests AS request
+          ON request.id = candidate.request_id
+        WHERE request.run_id = ?
+        ORDER BY request.role ASC, request.person ASC, candidate.rank ASC,
+          candidate.id ASC
+      `)
+      .all(runId) as unknown as ReferenceCandidateRow[];
+    return rows.map(toReferenceCandidate);
+  }
+
   getCandidate(id: string): ReferenceCandidate | null {
     const row = this.db
       .prepare("SELECT * FROM reference_candidates WHERE id = ?")
