@@ -62,6 +62,7 @@ export class ReferenceCoordinator {
       required: requirement.required,
       status: "AWAITING_UPLOAD" as const,
       attempt: 1,
+      activeCandidateId: null,
       slackFileId: null,
       privateDownloadUrl: null,
       sourcePageUrl: null,

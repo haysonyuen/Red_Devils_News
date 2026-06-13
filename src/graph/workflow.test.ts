@@ -83,6 +83,7 @@ function state(
       referenceWarning: null,
     },
     referenceRequests: [],
+    referenceCandidates: [],
     referenceApprovals: [
       {
         requestId: "reference-1",

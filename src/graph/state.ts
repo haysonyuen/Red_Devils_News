@@ -7,6 +7,7 @@ import {
   GeneratedCandidate,
   GenerationRequest,
   ProducerOutput,
+  ReferenceCandidate,
   ReferenceRequest,
   StorySelection,
   VisualBrief,
@@ -88,6 +89,10 @@ export const PipelineStateAnnotation = Annotation.Root({
     default: () => null,
   }),
   referenceRequests: Annotation<ReferenceRequest[]>({
+    reducer: (_, next) => next,
+    default: () => [],
+  }),
+  referenceCandidates: Annotation<ReferenceCandidate[]>({
     reducer: (_, next) => next,
     default: () => [],
   }),

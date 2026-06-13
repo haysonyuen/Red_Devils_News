@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { VisualBrief } from "../graph/contracts";
+import { ReferenceCandidate, VisualBrief } from "../graph/contracts";
 import { ReferenceCoordinator } from "./coordinator";
 import { ReferenceStore } from "./store";
 
@@ -50,6 +50,27 @@ const primary = requests.find((request) => request.role === "PRIMARY");
 const secondary = requests.find((request) => request.role === "SECONDARY");
 if (!primary || !secondary) {
   throw new Error("Expected primary and secondary requests");
+}
+
+const candidate: ReferenceCandidate = {
+  id: "candidate-1",
+  requestId: primary.id,
+  person: primary.person,
+  imageUrl: "https://ichef.bbci.co.uk/images/example.jpg",
+  sourcePageUrl: "https://www.bbc.com/sport/football/articles/example",
+  origin: "SELECTED_ARTICLE",
+  rank: 1,
+  status: "AVAILABLE",
+  discoveredAt: "2026-06-13T12:00:00.000Z",
+};
+store.insertCandidate(candidate);
+const persisted = store.listCandidatesForRequest(primary.id);
+if (
+  persisted.length !== 1 ||
+  persisted[0].imageUrl !== candidate.imageUrl ||
+  persisted[0].origin !== "SELECTED_ARTICLE"
+) {
+  throw new Error("Reference candidates should persist with provenance");
 }
 
 coordinator.attachUpload(

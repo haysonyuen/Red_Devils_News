@@ -25,6 +25,24 @@ export type ReferenceStatus =
   | "OMITTED"
   | "TIMED_OUT";
 
+export type ReferenceCandidateStatus =
+  | "AVAILABLE"
+  | "APPROVED"
+  | "REJECTED"
+  | "FAILED";
+
+export interface ReferenceCandidate {
+  id: string;
+  requestId: string;
+  person: string;
+  imageUrl: string;
+  sourcePageUrl: string;
+  origin: "SELECTED_ARTICLE" | "OFFICIAL_LINK";
+  rank: number;
+  status: ReferenceCandidateStatus;
+  discoveredAt: string;
+}
+
 export interface StorySelection {
   decision: "SELECT" | "NO_STORY";
   primaryStory: string | null;
@@ -91,6 +109,7 @@ export interface ReferenceRequest {
   required: boolean;
   status: ReferenceStatus;
   attempt: number;
+  activeCandidateId: string | null;
   slackFileId: string | null;
   privateDownloadUrl: string | null;
   sourcePageUrl: string | null;
