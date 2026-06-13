@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  ReferenceCandidate,
   ReferenceRequest,
   ReferenceStatus,
   VisualBrief,
@@ -7,6 +8,7 @@ import {
 import { ReferenceStore } from "./store";
 
 const ACTIVE_STATUSES: ReferenceStatus[] = [
+  "AWAITING_CANDIDATE",
   "AWAITING_UPLOAD",
   "AWAITING_SOURCE",
   "AWAITING_DECISION",
@@ -18,6 +20,13 @@ export interface ReferenceResolution {
   approved: ReferenceRequest[];
   omitted: ReferenceRequest[];
   pending: ReferenceRequest[];
+  activeCandidates: ReferenceCandidate[];
+}
+
+export interface ReferenceDecisionResult {
+  request: ReferenceRequest;
+  activeCandidate: ReferenceCandidate | null;
+  resolution: ReferenceResolution;
 }
 
 function normalizePerson(person: string): string {
@@ -60,7 +69,7 @@ export class ReferenceCoordinator {
       person: requirement.person,
       role: requirement.role,
       required: requirement.required,
-      status: "AWAITING_UPLOAD" as const,
+      status: "AWAITING_CANDIDATE" as const,
       attempt: 1,
       activeCandidateId: null,
       slackFileId: null,
@@ -73,6 +82,128 @@ export class ReferenceCoordinator {
     }));
     requests.forEach((request) => this.store.insert(request));
     return requests;
+  }
+
+  attachCandidates(
+    requestId: string,
+    candidates: ReferenceCandidate[]
+  ): ReferenceDecisionResult {
+    const request = this.requireActive(requestId);
+    for (const candidate of candidates) {
+      if (
+        candidate.requestId !== request.id ||
+        normalizePerson(candidate.person) !== normalizePerson(request.person)
+      ) {
+        throw new Error("Reference candidate does not match its request");
+      }
+    }
+
+    const existing = this.store.listCandidatesForRequest(request.id);
+    if (existing.length > 0) {
+      return this.decisionResult(request);
+    }
+
+    const ranked = [...candidates]
+      .sort((a, b) => a.rank - b.rank || a.id.localeCompare(b.id))
+      .slice(0, 3);
+    ranked.forEach((candidate) => this.store.insertCandidate(candidate));
+    const activeCandidate = ranked[0] ?? null;
+    const updated: ReferenceRequest = activeCandidate
+      ? {
+          ...request,
+          status: "AWAITING_DECISION",
+          activeCandidateId: activeCandidate.id,
+        }
+      : request.role === "SECONDARY"
+        ? {
+            ...request,
+            status: "OMITTED",
+            activeCandidateId: null,
+          }
+        : request;
+    this.store.update(updated);
+    return this.decisionResult(updated);
+  }
+
+  decideCandidate(
+    requestId: string,
+    candidateId: string,
+    decision: "APPROVED" | "REJECTED",
+    approverId: string,
+    decidedAt = new Date()
+  ): ReferenceDecisionResult {
+    const request = this.requireRequest(requestId);
+    const candidate = this.requireCandidate(candidateId);
+    if (candidate.requestId !== request.id) {
+      throw new Error("Reference candidate does not belong to its request");
+    }
+    if (candidate.status !== "AVAILABLE") {
+      return this.decisionResult(request);
+    }
+    if (
+      request.status !== "AWAITING_DECISION" ||
+      request.activeCandidateId !== candidate.id
+    ) {
+      throw new Error("Reference candidate is not awaiting a decision");
+    }
+
+    const decisionAt = decidedAt.toISOString();
+    if (decision === "APPROVED") {
+      this.store.updateCandidate({ ...candidate, status: "APPROVED" });
+      const approved: ReferenceRequest = {
+        ...request,
+        status: "APPROVED",
+        approverId,
+        decisionAt,
+      };
+      this.store.update(approved);
+      return this.decisionResult(approved);
+    }
+
+    this.store.updateCandidate({ ...candidate, status: "REJECTED" });
+    const nextCandidate =
+      request.role === "PRIMARY" && request.attempt < 2
+        ? this.store
+            .listCandidatesForRequest(request.id)
+            .find((item) => item.status === "AVAILABLE") ?? null
+        : null;
+    const rejected: ReferenceRequest = nextCandidate
+      ? {
+          ...request,
+          status: "AWAITING_DECISION",
+          attempt: request.attempt + 1,
+          activeCandidateId: nextCandidate.id,
+          approverId,
+          decisionAt,
+        }
+      : {
+          ...request,
+          status: request.role === "SECONDARY" ? "OMITTED" : "REJECTED",
+          activeCandidateId: null,
+          approverId,
+          decisionAt,
+        };
+    this.store.update(rejected);
+    return this.decisionResult(rejected);
+  }
+
+  useConceptual(
+    runId: string,
+    approverId: string,
+    decidedAt = new Date()
+  ): ReferenceResolution {
+    const decisionAt = decidedAt.toISOString();
+    for (const request of this.requireRun(runId)) {
+      if (!ACTIVE_STATUSES.includes(request.status)) continue;
+      this.store.update({
+        ...request,
+        status: request.role === "PRIMARY" ? "REJECTED" : "OMITTED",
+        activeCandidateId: null,
+        approverId,
+        decisionAt,
+      });
+    }
+    return this.resolve(runId);
   }
 
   attachUpload(
@@ -178,6 +309,7 @@ export class ReferenceCoordinator {
         this.store.update({
           ...request,
           status: request.role === "PRIMARY" ? "TIMED_OUT" : "OMITTED",
+          activeCandidateId: null,
           decisionAt: now.toISOString(),
         });
       }
@@ -197,6 +329,13 @@ export class ReferenceCoordinator {
     const primary = requests.find((request) => request.role === "PRIMARY");
     const fallbackToConceptual =
       !primary || ["REJECTED", "TIMED_OUT"].includes(primary.status);
+    const activeCandidates = requests
+      .map((request) =>
+        request.activeCandidateId
+          ? this.store.getCandidate(request.activeCandidateId)
+          : null
+      )
+      .filter((candidate): candidate is ReferenceCandidate => candidate !== null);
 
     return {
       ready: pending.length === 0,
@@ -204,6 +343,7 @@ export class ReferenceCoordinator {
       approved,
       omitted,
       pending,
+      activeCandidates,
     };
   }
 
@@ -228,6 +368,24 @@ export class ReferenceCoordinator {
     const request = this.store.get(requestId);
     if (!request) throw new Error(`Unknown reference request: ${requestId}`);
     return request;
+  }
+
+  private requireCandidate(candidateId: string): ReferenceCandidate {
+    const candidate = this.store.getCandidate(candidateId);
+    if (!candidate) {
+      throw new Error(`Unknown reference candidate: ${candidateId}`);
+    }
+    return candidate;
+  }
+
+  private decisionResult(request: ReferenceRequest): ReferenceDecisionResult {
+    return {
+      request,
+      activeCandidate: request.activeCandidateId
+        ? this.store.getCandidate(request.activeCandidateId)
+        : null,
+      resolution: this.resolve(request.runId),
+    };
   }
 
   private requireActive(requestId: string): ReferenceRequest {

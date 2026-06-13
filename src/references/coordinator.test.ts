@@ -1,7 +1,11 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ReferenceCandidate, VisualBrief } from "../graph/contracts";
+import {
+  ReferenceCandidate,
+  ReferenceRequest,
+  VisualBrief,
+} from "../graph/contracts";
 import { ReferenceCoordinator } from "./coordinator";
 import { ReferenceStore } from "./store";
 
@@ -14,9 +18,24 @@ function expectThrows(label: string, action: () => unknown): void {
   throw new Error(`Expected ${label} to throw`);
 }
 
-const tempDir = mkdtempSync(join(tmpdir(), "red-devils-references-"));
-const store = new ReferenceStore(join(tempDir, "references.db"));
-const coordinator = new ReferenceCoordinator(store);
+function candidate(
+  request: ReferenceRequest,
+  id: string,
+  rank: number
+): ReferenceCandidate {
+  return {
+    id,
+    requestId: request.id,
+    person: request.person,
+    imageUrl: `https://cdn.example/${id}.jpg`,
+    sourcePageUrl:
+      "https://www.bbc.com/sport/football/articles/example",
+    origin: rank === 1 ? "SELECTED_ARTICLE" : "OFFICIAL_LINK",
+    rank,
+    status: "AVAILABLE",
+    discoveredAt: "2026-06-13T12:00:00.000Z",
+  };
+}
 
 const brief: VisualBrief = {
   storyHook: "United's transfer decision",
@@ -30,169 +49,226 @@ const brief: VisualBrief = {
     { person: "Player One", role: "PRIMARY", required: true },
     { person: "Player Two", role: "SECONDARY", required: true },
   ],
-  searchInstructions: ["Search official club and established news sites"],
+  searchInstructions: ["Use selected editorial sources"],
   generationPromptTemplate: "Editorial football composite",
   conceptualFallbackPrompt: "Symbolic football crossroads",
   referenceWarning: null,
 };
 
+const tempDir = mkdtempSync(join(tmpdir(), "red-devils-references-"));
+const store = new ReferenceStore(join(tempDir, "references.db"));
+const coordinator = new ReferenceCoordinator(store);
+
 const requests = coordinator.createRequests(
   "run-1",
   "thread-1",
   brief,
-  new Date("2026-06-12T12:00:00.000Z")
+  new Date("2026-06-13T12:00:00.000Z")
 );
-if (requests.length !== 2) {
-  throw new Error("Expected one reference request per recognizable person");
-}
-
 const primary = requests.find((request) => request.role === "PRIMARY");
 const secondary = requests.find((request) => request.role === "SECONDARY");
 if (!primary || !secondary) {
   throw new Error("Expected primary and secondary requests");
 }
-
-const candidate: ReferenceCandidate = {
-  id: "candidate-1",
-  requestId: primary.id,
-  person: primary.person,
-  imageUrl: "https://ichef.bbci.co.uk/images/example.jpg",
-  sourcePageUrl: "https://www.bbc.com/sport/football/articles/example",
-  origin: "SELECTED_ARTICLE",
-  rank: 1,
-  status: "AVAILABLE",
-  discoveredAt: "2026-06-13T12:00:00.000Z",
-};
-store.insertCandidate(candidate);
-const persisted = store.listCandidatesForRequest(primary.id);
-if (
-  persisted.length !== 1 ||
-  persisted[0].imageUrl !== candidate.imageUrl ||
-  persisted[0].origin !== "SELECTED_ARTICLE"
-) {
-  throw new Error("Reference candidates should persist with provenance");
+if (requests.some((request) => request.status !== "AWAITING_CANDIDATE")) {
+  throw new Error("New requests should wait for discovered candidates");
 }
 
-coordinator.attachUpload(
+const first = candidate(primary, "candidate-1", 1);
+const second = candidate(primary, "candidate-2", 2);
+const attached = coordinator.attachCandidates(primary.id, [first, second]);
+if (
+  attached.request.status !== "AWAITING_DECISION" ||
+  attached.request.activeCandidateId !== first.id ||
+  attached.activeCandidate?.id !== first.id
+) {
+  throw new Error("Discovery should activate the highest-ranked candidate");
+}
+if (store.listCandidatesForRequest(primary.id).length !== 2) {
+  throw new Error("Discovered candidates should persist");
+}
+
+const retry = coordinator.decideCandidate(
   primary.id,
-  "Player One",
-  "file-1",
-  "https://slack.example/private/file-1",
-  "user-1"
+  first.id,
+  "REJECTED",
+  "approver-1"
 );
-if (store.get(primary.id)?.status !== "AWAITING_SOURCE") {
-  throw new Error("Upload alone must wait for a source URL");
+if (
+  retry.request.attempt !== 2 ||
+  retry.request.activeCandidateId !== second.id ||
+  retry.resolution.ready
+) {
+  throw new Error("First primary rejection should activate the next candidate");
 }
-expectThrows("approval before source", () =>
-  coordinator.decide(primary.id, "APPROVED", "approver-1")
-);
 
-coordinator.attachSource(
+const replay = coordinator.decideCandidate(
   primary.id,
-  "https://www.bbc.com/sport/football/articles/example"
+  first.id,
+  "REJECTED",
+  "approver-1"
 );
-if (store.get(primary.id)?.status !== "AWAITING_DECISION") {
-  throw new Error("A file and source should wait for explicit approval");
-}
-coordinator.decide(primary.id, "APPROVED", "approver-1");
-if (store.get(primary.id)?.status !== "APPROVED") {
-  throw new Error("Explicit approval should approve the reference");
-}
-expectThrows("decision after terminal state", () =>
-  coordinator.decide(primary.id, "REJECTED", "approver-2")
-);
-
-expectThrows("invalid source protocol", () =>
-  coordinator.attachSource(secondary.id, "file:///tmp/reference.jpg")
-);
-expectThrows("wrong person attached to request", () =>
-  coordinator.attachUpload(
-    secondary.id,
-    "Player One",
-    "file-2",
-    "https://slack.example/private/file-2",
-    "user-1"
-  )
-);
-expectThrows("unknown request", () =>
-  coordinator.attachSource(
-    "missing-request",
-    "https://www.bbc.com/sport/football/articles/example"
-  )
-);
-
-coordinator.timeoutRun("run-1", new Date("2026-06-12T12:31:00.000Z"));
-const firstResolution = coordinator.resolve("run-1");
 if (
-  !firstResolution.ready ||
-  firstResolution.fallbackToConceptual ||
-  firstResolution.approved.length !== 1 ||
-  firstResolution.omitted.length !== 1 ||
-  firstResolution.pending.length !== 0
+  replay.request.attempt !== 2 ||
+  replay.request.activeCandidateId !== second.id
 ) {
-  throw new Error("Missing secondary should be omitted after timeout");
+  throw new Error("Replayed rejection must not advance the request twice");
 }
 
-const rejectionRequests = coordinator.createRequests(
-  "run-2",
-  "thread-2",
-  { ...brief, secondaryCharacters: [], compositionMode: "PRIMARY_WITH_BACKGROUND", referenceRequirements: [brief.referenceRequirements[0]] },
-  new Date("2026-06-12T13:00:00.000Z")
+const approvedSecondaryCandidate = candidate(
+  secondary,
+  "secondary-candidate",
+  1
 );
-const rejectedPrimary = rejectionRequests[0];
-coordinator.attachUpload(
-  rejectedPrimary.id,
-  rejectedPrimary.person,
-  "file-3",
-  "https://slack.example/private/file-3",
-  "user-1"
+coordinator.attachCandidates(secondary.id, [approvedSecondaryCandidate]);
+coordinator.decideCandidate(
+  secondary.id,
+  approvedSecondaryCandidate.id,
+  "APPROVED",
+  "approver-1"
 );
-coordinator.attachSource(
-  rejectedPrimary.id,
-  "https://www.bbc.com/sport/football/articles/example"
-);
-coordinator.decide(rejectedPrimary.id, "REJECTED", "approver-1");
-const retry = store.get(rejectedPrimary.id);
-if (
-  retry?.status !== "AWAITING_UPLOAD" ||
-  retry.attempt !== 2 ||
-  retry.slackFileId !== null ||
-  retry.sourcePageUrl !== null
-) {
-  throw new Error("First primary rejection should request one clean retry");
-}
 
-coordinator.attachUpload(
-  rejectedPrimary.id,
-  rejectedPrimary.person,
-  "file-4",
-  "https://slack.example/private/file-4",
-  "user-1"
+const fallback = coordinator.decideCandidate(
+  primary.id,
+  second.id,
+  "REJECTED",
+  "approver-1"
 );
-coordinator.attachSource(
-  rejectedPrimary.id,
-  "https://www.bbc.com/sport/football/articles/example"
-);
-coordinator.decide(rejectedPrimary.id, "REJECTED", "approver-1");
-const rejectedResolution = coordinator.resolve("run-2");
-if (!rejectedResolution.ready || !rejectedResolution.fallbackToConceptual) {
+if (!fallback.resolution.ready || !fallback.resolution.fallbackToConceptual) {
   throw new Error("Second primary rejection should trigger conceptual fallback");
 }
 
-const timeoutRequests = coordinator.createRequests(
+const approvedRequests = coordinator.createRequests(
+  "run-2",
+  "thread-2",
+  {
+    ...brief,
+    secondaryCharacters: [],
+    compositionMode: "PRIMARY_WITH_BACKGROUND",
+    referenceRequirements: [brief.referenceRequirements[0]],
+  },
+  new Date("2026-06-13T13:00:00.000Z")
+);
+const approvedPrimary = approvedRequests[0];
+const approvedCandidate = candidate(
+  approvedPrimary,
+  "approved-candidate",
+  1
+);
+coordinator.attachCandidates(approvedPrimary.id, [approvedCandidate]);
+const approval = coordinator.decideCandidate(
+  approvedPrimary.id,
+  approvedCandidate.id,
+  "APPROVED",
+  "approver-2"
+);
+if (
+  !approval.resolution.ready ||
+  approval.resolution.fallbackToConceptual ||
+  approval.resolution.approved.length !== 1 ||
+  approval.resolution.activeCandidates[0]?.status !== "APPROVED"
+) {
+  throw new Error("Approved primary candidate should complete reference gating");
+}
+
+const omittedRequests = coordinator.createRequests(
   "run-3",
   "thread-3",
-  { ...brief, secondaryCharacters: [], compositionMode: "PRIMARY_WITH_BACKGROUND", referenceRequirements: [brief.referenceRequirements[0]] },
-  new Date("2026-06-12T14:00:00.000Z")
+  brief,
+  new Date("2026-06-13T14:00:00.000Z")
 );
-coordinator.timeoutRun("run-3", new Date("2026-06-12T14:31:00.000Z"));
+const omittedPrimary = omittedRequests.find(
+  (request) => request.role === "PRIMARY"
+);
+const omittedSecondary = omittedRequests.find(
+  (request) => request.role === "SECONDARY"
+);
+if (!omittedPrimary || !omittedSecondary) {
+  throw new Error("Expected primary and secondary requests");
+}
+const omittedPrimaryCandidate = candidate(
+  omittedPrimary,
+  "primary-approved",
+  1
+);
+const rejectedSecondaryCandidate = candidate(
+  omittedSecondary,
+  "secondary-rejected",
+  1
+);
+coordinator.attachCandidates(omittedPrimary.id, [omittedPrimaryCandidate]);
+coordinator.attachCandidates(omittedSecondary.id, [
+  rejectedSecondaryCandidate,
+]);
+coordinator.decideCandidate(
+  omittedPrimary.id,
+  omittedPrimaryCandidate.id,
+  "APPROVED",
+  "approver-3"
+);
+const omitted = coordinator.decideCandidate(
+  omittedSecondary.id,
+  rejectedSecondaryCandidate.id,
+  "REJECTED",
+  "approver-3"
+);
+if (
+  !omitted.resolution.ready ||
+  omitted.resolution.fallbackToConceptual ||
+  omitted.request.status !== "OMITTED"
+) {
+  throw new Error("Rejected secondary should be omitted without blocking primary");
+}
+
+const conceptualRequests = coordinator.createRequests(
+  "run-4",
+  "thread-4",
+  brief,
+  new Date("2026-06-13T15:00:00.000Z")
+);
+const conceptual = coordinator.useConceptual(
+  "run-4",
+  "approver-4",
+  new Date("2026-06-13T15:01:00.000Z")
+);
+if (
+  !conceptual.ready ||
+  !conceptual.fallbackToConceptual ||
+  conceptualRequests.some(
+    (request) => coordinator.requestsForRun("run-4")
+      .find((current) => current.id === request.id)?.status === "AWAITING_CANDIDATE"
+  )
+) {
+  throw new Error("Conceptual action should resolve every reference request");
+}
+
+const timeoutRequests = coordinator.createRequests(
+  "run-5",
+  "thread-5",
+  {
+    ...brief,
+    secondaryCharacters: [],
+    compositionMode: "PRIMARY_WITH_BACKGROUND",
+    referenceRequirements: [brief.referenceRequirements[0]],
+  },
+  new Date("2026-06-13T16:00:00.000Z")
+);
+const timeout = coordinator.timeoutRun(
+  "run-5",
+  new Date("2026-06-13T16:31:00.000Z")
+);
 if (
   store.get(timeoutRequests[0].id)?.status !== "TIMED_OUT" ||
-  !coordinator.resolve("run-3").fallbackToConceptual
+  !timeout.fallbackToConceptual
 ) {
   throw new Error("Missing primary at timeout should trigger conceptual fallback");
 }
 
+expectThrows("candidate for another request", () =>
+  coordinator.attachCandidates(primary.id, [
+    { ...first, id: "wrong-request", requestId: "another-request" },
+  ])
+);
 expectThrows("unknown run", () => coordinator.resolve("missing-run"));
 
 store.close();

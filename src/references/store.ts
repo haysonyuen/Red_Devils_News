@@ -237,7 +237,12 @@ export class ReferenceStore {
       .prepare(`
         SELECT DISTINCT run_id
         FROM reference_requests
-        WHERE status IN ('AWAITING_UPLOAD', 'AWAITING_SOURCE', 'AWAITING_DECISION')
+        WHERE status IN (
+          'AWAITING_CANDIDATE',
+          'AWAITING_UPLOAD',
+          'AWAITING_SOURCE',
+          'AWAITING_DECISION'
+        )
           AND deadline_at <= ?
       `)
       .all(nowIso) as unknown as Array<{ run_id: string }>;

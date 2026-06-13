@@ -17,6 +17,7 @@ export type CompositionMode =
 export type ReferenceRole = "PRIMARY" | "SECONDARY";
 
 export type ReferenceStatus =
+  | "AWAITING_CANDIDATE"
   | "AWAITING_UPLOAD"
   | "AWAITING_SOURCE"
   | "AWAITING_DECISION"
