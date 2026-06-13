@@ -27,6 +27,7 @@ export interface ReferenceDecisionResult {
   request: ReferenceRequest;
   activeCandidate: ReferenceCandidate | null;
   resolution: ReferenceResolution;
+  changed: boolean;
 }
 
 function normalizePerson(person: string): string {
@@ -100,7 +101,7 @@ export class ReferenceCoordinator {
 
     const existing = this.store.listCandidatesForRequest(request.id);
     if (existing.length > 0) {
-      return this.decisionResult(request);
+      return this.decisionResult(request, false);
     }
 
     const ranked = [...candidates]
@@ -122,7 +123,7 @@ export class ReferenceCoordinator {
           }
         : request;
     this.store.update(updated);
-    return this.decisionResult(updated);
+    return this.decisionResult(updated, true);
   }
 
   decideCandidate(
@@ -138,7 +139,7 @@ export class ReferenceCoordinator {
       throw new Error("Reference candidate does not belong to its request");
     }
     if (candidate.status !== "AVAILABLE") {
-      return this.decisionResult(request);
+      return this.decisionResult(request, false);
     }
     if (
       request.status !== "AWAITING_DECISION" ||
@@ -157,7 +158,7 @@ export class ReferenceCoordinator {
         decisionAt,
       };
       this.store.update(approved);
-      return this.decisionResult(approved);
+      return this.decisionResult(approved, true);
     }
 
     this.store.updateCandidate({ ...candidate, status: "REJECTED" });
@@ -184,7 +185,7 @@ export class ReferenceCoordinator {
           decisionAt,
         };
     this.store.update(rejected);
-    return this.decisionResult(rejected);
+    return this.decisionResult(rejected, true);
   }
 
   useConceptual(
@@ -378,13 +379,17 @@ export class ReferenceCoordinator {
     return candidate;
   }
 
-  private decisionResult(request: ReferenceRequest): ReferenceDecisionResult {
+  private decisionResult(
+    request: ReferenceRequest,
+    changed: boolean
+  ): ReferenceDecisionResult {
     return {
       request,
       activeCandidate: request.activeCandidateId
         ? this.store.getCandidate(request.activeCandidateId)
         : null,
       resolution: this.resolve(request.runId),
+      changed,
     };
   }
 
