@@ -34,6 +34,7 @@ case "${1:-}" in
     node dist/graph/visual-contracts.test.js
     node dist/references/identity.test.js
     node dist/references/evidence.test.js
+    node dist/references/brave.test.js
     node dist/references/discovery.test.js
     node dist/references/coordinator.test.js
     node dist/webhooks/slack.test.js
