@@ -104,6 +104,11 @@ npm run dev:now
 | `SLACK_CHANNEL_ID` | Private channel for approval cards |
 | `REFERENCE_TIMEOUT_MINUTES` | Reference collection deadline; defaults to 30 |
 | `REFERENCE_DB_PATH` | Persistent reference workflow SQLite path |
+| `BRAVE_SEARCH_API_KEY` | Brave Image Search key for official-domain reference discovery |
+| `AWS_REGION` | AWS Rekognition region; defaults to `us-east-1` |
+| `AWS_ACCESS_KEY_ID` | Local AWS credential; prefer an IAM role or AWS profile outside local development |
+| `AWS_SECRET_ACCESS_KEY` | Local AWS credential; never commit it |
+| `REFERENCE_FACE_SIMILARITY_THRESHOLD` | Minimum Rekognition similarity; defaults to 95 and is clamped to 90–99 |
 | `TZ` | Set to `Europe/London` for UK cron times |
 | `WEBHOOK_PORT` | Express port for Slack webhooks (default: 4242) |
 
@@ -122,7 +127,19 @@ Enforcement is hardcoded in [`src/mcp/server.ts`](src/mcp/server.ts) — bad dat
 3. Add the Bot Token Scope `chat:write`.
 4. Install the app and set `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, and `SLACK_CHANNEL_ID`.
 
-For a person-based visual, the pipeline discovers up to three reference candidates from the selected article's social-preview metadata and directly linked official football pages. The first Slack card contains the finished caption, story sources, visual hook, reference preview, provenance link, and buttons to approve, try the next reference, or use conceptual artwork. No player-name entry, file upload, Brave key, or Perplexity key is required for reference discovery.
+For a person-based visual, the pipeline resolves the person through Wikidata, searches approved official domains through Brave, requires two independent exact-name metadata signals, and compares each candidate against the Wikidata portrait using AWS Rekognition. Only verified candidates appear in Slack. Failure at any identity, evidence, or face gate uses person-free conceptual artwork.
+
+The first Slack card contains the finished caption, story sources, visual hook, verified reference preview, provenance link, and buttons to approve, try the next reference, or use conceptual artwork. No player-name entry or file upload is required.
+
+Run the opt-in live reference check after configuring Brave and AWS:
+
+```bash
+RUN_REFERENCE_INTEGRATION=1 npm run test:references:integration
+```
+
+The AWS SDK supports its standard credential provider chain. Prefer an IAM role
+or AWS profile in deployed environments; static credentials are intended only
+for local setup and must remain in `.env`.
 
 Reference approval, generated-candidate selection, and final `Approve & Publish` are three separate gates. Only the final gate can call Meta. Approved source images are copied to private Cloudinary storage, and neither source-image URLs nor private asset URLs enter the publish payload.
 

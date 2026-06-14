@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tsc",
     "test": "bash scripts/run.sh test",
+    "test:references:integration": "bash scripts/run.sh reference-integration",
     "start": "bash scripts/run.sh start",
     "dev": "bash scripts/run.sh dev",
     "dev:now": "bash scripts/run.sh dev-now"
