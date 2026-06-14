@@ -113,6 +113,21 @@ export class ReferenceCoordinator {
     return this.decisionResult(updated, true);
   }
 
+  resolveNoCandidates(
+    requestId: string,
+    decidedAt = new Date()
+  ): ReferenceDecisionResult {
+    const request = this.requireActive(requestId);
+    const resolved: ReferenceRequest = {
+      ...request,
+      status: request.role === "PRIMARY" ? "REJECTED" : "OMITTED",
+      activeCandidateId: null,
+      decisionAt: decidedAt.toISOString(),
+    };
+    this.store.update(resolved);
+    return this.decisionResult(resolved, true);
+  }
+
   decideCandidate(
     requestId: string,
     candidateId: string,

@@ -66,11 +66,29 @@ export async function postReferenceRequestNode(
       person: request.person,
       selectedArticleUrls: state.scoutBrief?.selectedArticleUrls ?? [],
     });
-    coordinator.attachCandidates(request.id, candidates);
+    if (candidates.length === 0) {
+      coordinator.resolveNoCandidates(request.id);
+    } else {
+      coordinator.attachCandidates(request.id, candidates);
+    }
   }
 
   requests = coordinator.requestsForRun(state.runId);
   const candidates = coordinator.candidatesForRun(state.runId);
+  const resolution = coordinator.resolve(state.runId);
+  if (resolution.fallbackToConceptual) {
+    return {
+      referenceRequests: requests,
+      referenceCandidates: candidates,
+      visualBrief: {
+        ...state.visualBrief,
+        primaryCharacter: null,
+        secondaryCharacters: [],
+        compositionMode: "CONCEPTUAL",
+        referenceRequirements: [],
+      },
+    };
+  }
   if (shouldPost) {
     const response = await postMessage({
       channel: process.env.SLACK_CHANNEL_ID ?? "",

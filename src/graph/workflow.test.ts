@@ -287,7 +287,7 @@ async function testReferenceDiscoveryGateway(): Promise<void> {
       restartState.visualBrief as NonNullable<PipelineState["visualBrief"]>
     );
     const restartPosts: Array<Record<string, unknown>> = [];
-    await postReferenceRequestNode(restartState, {
+    const restartResult = await postReferenceRequestNode(restartState, {
       coordinator,
       discover: async () => [],
       postMessage: async (message) => {
@@ -295,9 +295,13 @@ async function testReferenceDiscoveryGateway(): Promise<void> {
         return { ts: "slack-thread-restart" };
       },
     });
-    if (restartPosts.length !== 1) {
+    if (
+      restartPosts.length !== 0 ||
+      restartResult.visualBrief?.compositionMode !== "CONCEPTUAL" ||
+      coordinator.requestsForRun(restartState.runId)[0]?.status !== "REJECTED"
+    ) {
       throw new Error(
-        "A restart before Slack posting should still publish the reference card"
+        "Missing verified primary must fall back without posting an empty card"
       );
     }
   } finally {
