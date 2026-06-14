@@ -27,7 +27,11 @@ type ReferenceCandidateRow = {
   person: string;
   image_url: string;
   source_page_url: string;
-  origin: "SELECTED_ARTICLE" | "OFFICIAL_LINK";
+  origin: "BRAVE_OFFICIAL";
+  entity_id: string;
+  evidence_signal_count: number;
+  face_similarity: number;
+  verification_anchor_url: string;
   rank: number;
   status: ReferenceCandidateStatus;
   discovered_at: string;
@@ -58,6 +62,10 @@ function toReferenceCandidate(row: ReferenceCandidateRow): ReferenceCandidate {
     imageUrl: row.image_url,
     sourcePageUrl: row.source_page_url,
     origin: row.origin,
+    entityId: row.entity_id,
+    evidenceSignalCount: row.evidence_signal_count,
+    faceSimilarity: row.face_similarity,
+    verificationAnchorUrl: row.verification_anchor_url,
     rank: row.rank,
     status: row.status,
     discoveredAt: row.discovered_at,
@@ -95,6 +103,10 @@ export class ReferenceStore {
         image_url TEXT NOT NULL,
         source_page_url TEXT NOT NULL,
         origin TEXT NOT NULL,
+        entity_id TEXT,
+        evidence_signal_count INTEGER,
+        face_similarity REAL,
+        verification_anchor_url TEXT,
         rank INTEGER NOT NULL,
         status TEXT NOT NULL,
         discovered_at TEXT NOT NULL,
@@ -111,6 +123,32 @@ export class ReferenceStore {
         "ALTER TABLE reference_requests ADD COLUMN active_candidate_id TEXT"
       );
     }
+    const candidateColumns = this.db
+      .prepare("PRAGMA table_info(reference_candidates)")
+      .all() as unknown as Array<{ name: string }>;
+    const migrations = [
+      ["entity_id", "TEXT"],
+      ["evidence_signal_count", "INTEGER"],
+      ["face_similarity", "REAL"],
+      ["verification_anchor_url", "TEXT"],
+    ] as const;
+    for (const [name, type] of migrations) {
+      if (!candidateColumns.some((column) => column.name === name)) {
+        this.db.exec(
+          `ALTER TABLE reference_candidates ADD COLUMN ${name} ${type}`
+        );
+      }
+    }
+    this.db.exec(`
+      DELETE FROM reference_candidates WHERE entity_id IS NULL;
+      UPDATE reference_requests
+      SET active_candidate_id = NULL, status = 'AWAITING_CANDIDATE'
+      WHERE active_candidate_id IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM reference_candidates
+          WHERE reference_candidates.id = reference_requests.active_candidate_id
+        );
+    `);
   }
 
   insert(request: ReferenceRequest): void {
@@ -142,8 +180,9 @@ export class ReferenceStore {
       .prepare(`
         INSERT INTO reference_candidates (
           id, request_id, person, image_url, source_page_url, origin, rank,
-          status, discovered_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          status, discovered_at, entity_id, evidence_signal_count,
+          face_similarity, verification_anchor_url
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         candidate.id,
@@ -154,7 +193,11 @@ export class ReferenceStore {
         candidate.origin,
         candidate.rank,
         candidate.status,
-        candidate.discoveredAt
+        candidate.discoveredAt,
+        candidate.entityId,
+        candidate.evidenceSignalCount,
+        candidate.faceSimilarity,
+        candidate.verificationAnchorUrl
       );
   }
 

@@ -30,7 +30,11 @@ function candidate(
     imageUrl: `https://cdn.example/${id}.jpg`,
     sourcePageUrl:
       "https://www.bbc.com/sport/football/articles/example",
-    origin: rank === 1 ? "SELECTED_ARTICLE" : "OFFICIAL_LINK",
+    origin: "BRAVE_OFFICIAL",
+    entityId: "Q123",
+    evidenceSignalCount: 2,
+    faceSimilarity: 98 - rank,
+    verificationAnchorUrl: "https://commons.wikimedia.org/player-one.jpg",
     rank,
     status: "AVAILABLE",
     discoveredAt: "2026-06-13T12:00:00.000Z",
@@ -84,7 +88,12 @@ if (
 ) {
   throw new Error("Discovery should activate the highest-ranked candidate");
 }
-if (store.listCandidatesForRequest(primary.id).length !== 2) {
+const persistedCandidates = store.listCandidatesForRequest(primary.id);
+if (
+  persistedCandidates.length !== 2 ||
+  persistedCandidates[0].entityId !== "Q123" ||
+  persistedCandidates[0].faceSimilarity !== 97
+) {
   throw new Error("Discovered candidates should persist");
 }
 

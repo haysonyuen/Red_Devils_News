@@ -36,7 +36,11 @@ export interface ReferenceCandidate {
   person: string;
   imageUrl: string;
   sourcePageUrl: string;
-  origin: "SELECTED_ARTICLE" | "OFFICIAL_LINK";
+  origin: "BRAVE_OFFICIAL";
+  entityId: string;
+  evidenceSignalCount: number;
+  faceSimilarity: number;
+  verificationAnchorUrl: string;
   rank: number;
   status: ReferenceCandidateStatus;
   discoveredAt: string;

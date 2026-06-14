@@ -1,96 +1,48 @@
 import { randomUUID } from "node:crypto";
 import axios from "axios";
-import * as cheerio from "cheerio";
 import { ReferenceCandidate } from "../graph/contracts";
+import {
+  BraveImageResult,
+  searchOfficialPlayerImages,
+} from "./brave";
+import {
+  extractCandidateEvidence,
+  validateCandidateEvidence,
+} from "./evidence";
+import {
+  FaceVerificationDecision,
+  verifyCandidateFace,
+} from "./faceVerification";
+import {
+  PersonIdentity,
+  resolvePersonIdentity,
+} from "./identity";
 
-const OFFICIAL_HOSTS = [
+const FIXED_OFFICIAL_DOMAINS = [
   "manutd.com",
   "premierleague.com",
   "thefa.com",
   "uefa.com",
   "fifa.com",
 ];
-const MAX_OFFICIAL_PAGE_FETCHES = 2;
+const MAX_FACE_COMPARISONS = 3;
 const MAX_CANDIDATES = 3;
 
 export interface DiscoveryInput {
   requestId: string;
   person: string;
-  selectedArticleUrls: string[];
+  selectedArticleUrls?: string[];
+  resolveIdentity?: (person: string) => Promise<PersonIdentity | null>;
+  searchImages?: (input: {
+    canonicalName: string;
+    officialDomains: string[];
+  }) => Promise<BraveImageResult[]>;
   fetchHtml?: (url: string) => Promise<string>;
+  verifyFace?: (input: {
+    anchorUrl: string;
+    candidateUrl: string;
+  }) => Promise<FaceVerificationDecision>;
   now?: Date;
-}
-
-export interface PageMetadata {
-  imageUrls: string[];
-  officialLinks: string[];
-}
-
-function normalizeHttpUrl(value: string, baseUrl: string): string | null {
-  try {
-    const url = new URL(value, baseUrl);
-    if (!["http:", "https:"].includes(url.protocol)) return null;
-    url.hash = "";
-    return url.toString();
-  } catch {
-    return null;
-  }
-}
-
-export function isApprovedOfficialHost(value: string): boolean {
-  try {
-    const hostname = new URL(value).hostname.toLocaleLowerCase();
-    return OFFICIAL_HOSTS.some(
-      (host) => hostname === host || hostname.endsWith(`.${host}`)
-    );
-  } catch {
-    return false;
-  }
-}
-
-export function extractPageMetadata(
-  pageUrl: string,
-  html: string
-): PageMetadata {
-  const $ = cheerio.load(html);
-  const imageUrls: string[] = [];
-  const officialLinks: string[] = [];
-  const seenImages = new Set<string>();
-  const seenLinks = new Set<string>();
-  const imageSelectors = [
-    "meta[property='og:image']",
-    "meta[property='og:image:secure_url']",
-    "meta[name='twitter:image']",
-    "meta[name='twitter:image:src']",
-  ];
-
-  for (const selector of imageSelectors) {
-    $(selector).each((_index, element) => {
-      const content = $(element).attr("content");
-      if (!content) return;
-      const normalized = normalizeHttpUrl(content, pageUrl);
-      if (normalized && !seenImages.has(normalized)) {
-        seenImages.add(normalized);
-        imageUrls.push(normalized);
-      }
-    });
-  }
-
-  $("a[href]").each((_index, element) => {
-    const href = $(element).attr("href");
-    if (!href) return;
-    const normalized = normalizeHttpUrl(href, pageUrl);
-    if (
-      normalized &&
-      isApprovedOfficialHost(normalized) &&
-      !seenLinks.has(normalized)
-    ) {
-      seenLinks.add(normalized);
-      officialLinks.push(normalized);
-    }
-  });
-
-  return { imageUrls, officialLinks };
 }
 
 async function defaultFetchHtml(url: string): Promise<string> {
@@ -101,78 +53,112 @@ async function defaultFetchHtml(url: string): Promise<string> {
     },
     timeout: 15_000,
     responseType: "text",
+    maxContentLength: 5 * 1024 * 1024,
   });
   return response.data;
+}
+
+function isPlayerProfile(urlValue: string): boolean {
+  try {
+    const path = new URL(urlValue).pathname.toLocaleLowerCase();
+    return /\/(player|players|squad|team)\//.test(path);
+  } catch {
+    return false;
+  }
 }
 
 export async function discoverReferenceCandidates({
   requestId,
   person,
-  selectedArticleUrls,
+  resolveIdentity = (name) => resolvePersonIdentity(name),
+  searchImages = (input) => searchOfficialPlayerImages(input),
   fetchHtml = defaultFetchHtml,
+  verifyFace = (input) => verifyCandidateFace(input),
   now = new Date(),
 }: DiscoveryInput): Promise<ReferenceCandidate[]> {
-  const discoveredAt = now.toISOString();
-  const candidates: ReferenceCandidate[] = [];
-  const seenImages = new Set<string>();
-  const officialLinks: string[] = [];
-  const seenOfficialLinks = new Set<string>();
+  try {
+    const identity = await resolveIdentity(person);
+    if (!identity) return [];
 
-  const addCandidate = (
-    imageUrl: string,
-    sourcePageUrl: string,
-    origin: ReferenceCandidate["origin"]
-  ) => {
-    if (candidates.length >= MAX_CANDIDATES || seenImages.has(imageUrl)) return;
-    seenImages.add(imageUrl);
-    candidates.push({
-      id: randomUUID(),
-      requestId,
-      person,
-      imageUrl,
-      sourcePageUrl,
-      origin,
-      rank: candidates.length + 1,
-      status: "AVAILABLE",
-      discoveredAt,
+    const officialDomains = [
+      ...identity.officialDomains,
+      ...FIXED_OFFICIAL_DOMAINS,
+    ].filter((domain, index, values) => values.indexOf(domain) === index);
+    const results = await searchImages({
+      canonicalName: identity.canonicalName,
+      officialDomains,
     });
-  };
+    const evidenceQualified: Array<{
+      result: BraveImageResult;
+      evidenceSignalCount: number;
+    }> = [];
 
-  for (const articleUrl of selectedArticleUrls) {
-    if (candidates.length >= MAX_CANDIDATES) break;
-    try {
-      const metadata = extractPageMetadata(
-        articleUrl,
-        await fetchHtml(articleUrl)
-      );
-      metadata.imageUrls.forEach((imageUrl) =>
-        addCandidate(imageUrl, articleUrl, "SELECTED_ARTICLE")
-      );
-      for (const link of metadata.officialLinks) {
-        if (!seenOfficialLinks.has(link)) {
-          seenOfficialLinks.add(link);
-          officialLinks.push(link);
-        }
+    for (const result of results) {
+      if (evidenceQualified.length >= MAX_FACE_COMPARISONS) break;
+      try {
+        const evidence = extractCandidateEvidence(
+          result.sourcePageUrl,
+          await fetchHtml(result.sourcePageUrl),
+          result.imageUrl
+        )[0];
+        if (!evidence) continue;
+        const decision = validateCandidateEvidence(
+          identity.canonicalName,
+          evidence
+        );
+        if (!decision.accepted) continue;
+        evidenceQualified.push({
+          result,
+          evidenceSignalCount: decision.independentSignalCount,
+        });
+      } catch {
+        continue;
       }
-    } catch {
-      continue;
     }
-  }
 
-  for (const officialUrl of officialLinks.slice(0, MAX_OFFICIAL_PAGE_FETCHES)) {
-    if (candidates.length >= MAX_CANDIDATES) break;
-    try {
-      const metadata = extractPageMetadata(
-        officialUrl,
-        await fetchHtml(officialUrl)
-      );
-      metadata.imageUrls.forEach((imageUrl) =>
-        addCandidate(imageUrl, officialUrl, "OFFICIAL_LINK")
-      );
-    } catch {
-      continue;
+    const verified: Array<{
+      result: BraveImageResult;
+      evidenceSignalCount: number;
+      faceSimilarity: number;
+    }> = [];
+    for (const candidate of evidenceQualified) {
+      const decision = await verifyFace({
+        anchorUrl: identity.portraitUrl,
+        candidateUrl: candidate.result.imageUrl,
+      });
+      if (!decision.accepted || decision.similarity === null) continue;
+      verified.push({
+        ...candidate,
+        faceSimilarity: decision.similarity,
+      });
     }
-  }
 
-  return candidates;
+    return verified
+      .sort(
+        (left, right) =>
+          Number(isPlayerProfile(right.result.sourcePageUrl)) -
+            Number(isPlayerProfile(left.result.sourcePageUrl)) ||
+          right.faceSimilarity - left.faceSimilarity ||
+          right.evidenceSignalCount - left.evidenceSignalCount ||
+          left.result.sourcePageUrl.localeCompare(right.result.sourcePageUrl)
+      )
+      .slice(0, MAX_CANDIDATES)
+      .map((candidate, index) => ({
+        id: randomUUID(),
+        requestId,
+        person,
+        imageUrl: candidate.result.imageUrl,
+        sourcePageUrl: candidate.result.sourcePageUrl,
+        origin: "BRAVE_OFFICIAL",
+        entityId: identity.entityId,
+        evidenceSignalCount: candidate.evidenceSignalCount,
+        faceSimilarity: candidate.faceSimilarity,
+        verificationAnchorUrl: identity.portraitUrl,
+        rank: index + 1,
+        status: "AVAILABLE",
+        discoveredAt: now.toISOString(),
+      }));
+  } catch {
+    return [];
+  }
 }

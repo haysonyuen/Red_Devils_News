@@ -49,7 +49,11 @@ async function run(): Promise<void> {
     imageUrl: "https://ichef.bbci.co.uk/images/player.jpg",
     sourcePageUrl:
       "https://www.bbc.com/sport/football/articles/example",
-    origin: "SELECTED_ARTICLE",
+    origin: "BRAVE_OFFICIAL",
+    entityId: "Q123",
+    evidenceSignalCount: 2,
+    faceSimilarity: 98,
+    verificationAnchorUrl: "https://commons.wikimedia.org/rashford.jpg",
     rank: 1,
     status: "APPROVED",
     discoveredAt: "2026-06-13T12:00:00.000Z",
