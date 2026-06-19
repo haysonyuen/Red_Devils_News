@@ -1,7 +1,11 @@
 import crypto from "node:crypto";
 import axios from "axios";
 import { v2 as cloudinary } from "cloudinary";
-import { ApprovedReference, ReferenceRequest } from "../graph/contracts";
+import {
+  ApprovedReference,
+  ReferenceCandidate,
+  ReferenceRequest,
+} from "../graph/contracts";
 
 interface UploadResult {
   publicId: string;
@@ -71,20 +75,19 @@ export class CloudinaryAssetService {
       defaultDependencies()
   ) {}
 
-  async bufferReference(
+  async bufferDiscoveredReference(
     request: ReferenceRequest,
-    slackBotToken: string
+    candidate: ReferenceCandidate
   ): Promise<PrivateReferenceAsset> {
     if (
       request.status !== "APPROVED" ||
-      !request.privateDownloadUrl ||
-      !request.sourcePageUrl
+      candidate.status !== "APPROVED" ||
+      request.activeCandidateId !== candidate.id ||
+      candidate.requestId !== request.id
     ) {
-      throw new Error("Only approved, complete references can be buffered");
+      throw new Error("Only approved discovered references can be buffered");
     }
-    const buffer = await this.dependencies.download(request.privateDownloadUrl, {
-      headers: { Authorization: `Bearer ${slackBotToken}` },
-    });
+    const buffer = await this.dependencies.download(candidate.imageUrl, {});
     const publicId = `man-utd-pipeline/references/${request.runId}/${request.id}`;
     const uploaded = await this.dependencies.upload(buffer, {
       public_id: publicId,
@@ -98,7 +101,7 @@ export class CloudinaryAssetService {
         person: request.person,
         role: request.role,
         privateAssetId: uploaded.publicId,
-        sourcePageUrl: request.sourcePageUrl,
+        sourcePageUrl: candidate.sourcePageUrl,
         sha256: crypto.createHash("sha256").update(buffer).digest("hex"),
       },
       signedUrl: this.dependencies.signedUrl(uploaded.publicId),

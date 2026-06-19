@@ -34,9 +34,18 @@ export async function imageGenNode(
     ].slice(0, 4);
     const privateAssets = [];
     for (const request of selectedRequests) {
-      const slackToken = process.env.SLACK_BOT_TOKEN;
-      if (!slackToken) throw new Error("SLACK_BOT_TOKEN is not set");
-      privateAssets.push(await assets.bufferReference(request, slackToken));
+      const candidate = state.referenceCandidates.find(
+        (item) =>
+          item.id === request.activeCandidateId &&
+          item.requestId === request.id &&
+          item.status === "APPROVED"
+      );
+      if (!candidate) {
+        throw new Error(`Approved reference has no candidate: ${request.id}`);
+      }
+      privateAssets.push(
+        await assets.bufferDiscoveredReference(request, candidate)
+      );
     }
 
     const generationState: PipelineState = {

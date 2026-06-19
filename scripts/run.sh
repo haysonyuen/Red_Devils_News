@@ -32,14 +32,23 @@ case "${1:-}" in
     node dist/graph/agents.test.js
     node dist/graph/editorial-contracts.test.js
     node dist/graph/visual-contracts.test.js
+    node dist/references/identity.test.js
+    node dist/references/evidence.test.js
+    node dist/references/brave.test.js
+    node dist/references/faceVerification.test.js
+    node dist/references/discovery.test.js
     node dist/references/coordinator.test.js
     node dist/webhooks/slack.test.js
     node dist/visual/providers.test.js
     node dist/graph/workflow.test.js
     node dist/evals/persona.test.js
     ;;
+  reference-integration)
+    node node_modules/typescript/bin/tsc
+    node -r dotenv/config dist/references/integration.test.js
+    ;;
   *)
-    echo "Usage: scripts/run.sh {start|dev|dev-now|test}" >&2
+    echo "Usage: scripts/run.sh {start|dev|dev-now|test|reference-integration}" >&2
     exit 1
     ;;
 esac

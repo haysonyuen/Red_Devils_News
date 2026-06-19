@@ -17,13 +17,34 @@ export type CompositionMode =
 export type ReferenceRole = "PRIMARY" | "SECONDARY";
 
 export type ReferenceStatus =
-  | "AWAITING_UPLOAD"
-  | "AWAITING_SOURCE"
+  | "AWAITING_CANDIDATE"
   | "AWAITING_DECISION"
   | "APPROVED"
   | "REJECTED"
   | "OMITTED"
   | "TIMED_OUT";
+
+export type ReferenceCandidateStatus =
+  | "AVAILABLE"
+  | "APPROVED"
+  | "REJECTED"
+  | "FAILED";
+
+export interface ReferenceCandidate {
+  id: string;
+  requestId: string;
+  person: string;
+  imageUrl: string;
+  sourcePageUrl: string;
+  origin: "BRAVE_OFFICIAL";
+  entityId: string;
+  evidenceSignalCount: number;
+  faceSimilarity: number;
+  verificationAnchorUrl: string;
+  rank: number;
+  status: ReferenceCandidateStatus;
+  discoveredAt: string;
+}
 
 export interface StorySelection {
   decision: "SELECT" | "NO_STORY";
@@ -91,10 +112,7 @@ export interface ReferenceRequest {
   required: boolean;
   status: ReferenceStatus;
   attempt: number;
-  slackFileId: string | null;
-  privateDownloadUrl: string | null;
-  sourcePageUrl: string | null;
-  uploaderId: string | null;
+  activeCandidateId: string | null;
   approverId: string | null;
   decisionAt: string | null;
   deadlineAt: string;

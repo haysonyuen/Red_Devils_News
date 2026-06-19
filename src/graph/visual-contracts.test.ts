@@ -8,6 +8,7 @@ import {
   routeAfterVisualBrief,
 } from "./pipeline";
 import {
+  createVisualBrief,
   parseVisualBrief,
   prepareVisualBriefInput,
   validateVisualBriefAgainstInput,
@@ -212,6 +213,10 @@ assertVisualRequestAllowed(
 assertVisualRequestAllowed(
   "INTEREST",
   "The image must not imply a medical or completed transfer"
+);
+assertVisualRequestAllowed(
+  "INTEREST",
+  "Avoid any depiction of a medical, contract signing, or official announcement"
 );
 expectThrows(
   "affirmative medical scene",
@@ -558,7 +563,78 @@ async function testVisualBriefNodePrecondition(): Promise<void> {
   }
 }
 
-testVisualBriefNodePrecondition()
+async function testVisualBriefRepairFlow(): Promise<void> {
+  const visualState = state({
+    storySelection: selectedStory,
+    producerDecision: acceptedProducer,
+    draftCaption: acceptedProducer.caption,
+    factCheck: validOutput,
+    errorLog: [],
+  });
+  const invalidBrief = {
+    ...singlePlayerBrief,
+    generationPromptTemplate:
+      "Player One with a Manchester United crest and breaking-news text",
+  };
+  const responses = [invalidBrief, singlePlayerBrief];
+  let repairCalls = 0;
+  const repaired = await createVisualBrief(visualState, {
+    callJson: async (_systemPrompt, userPrompt) => {
+      if (userPrompt.includes("VISUAL_BRIEF_REPAIR")) repairCalls += 1;
+      return responses.shift() as VisualBrief;
+    },
+  });
+  if (
+    repaired.generationPromptTemplate !==
+      singlePlayerBrief.generationPromptTemplate ||
+    repairCalls !== 1
+  ) {
+    throw new Error("Invalid visual brief should receive exactly one repair");
+  }
+
+  let fallbackCalls = 0;
+  const fallback = await createVisualBrief(visualState, {
+    callJson: async () => {
+      fallbackCalls += 1;
+      return invalidBrief;
+    },
+  });
+  if (
+    fallbackCalls !== 2 ||
+    fallback.compositionMode !== "CONCEPTUAL" ||
+    fallback.primaryCharacter !== null ||
+    fallback.referenceRequirements.length !== 0 ||
+    JSON.stringify(fallback.forbiddenImplications) !==
+      JSON.stringify(validOutput.visualImplicationsForbidden)
+  ) {
+    throw new Error(
+      "Two invalid visual briefs should produce a fact-safe conceptual fallback"
+    );
+  }
+  validateVisualBriefAgainstInput(
+    fallback,
+    prepareVisualBriefInput(visualState)
+  );
+
+  let validCalls = 0;
+  const valid = await createVisualBrief(visualState, {
+    callJson: async () => {
+      validCalls += 1;
+      return singlePlayerBrief;
+    },
+  });
+  if (
+    validCalls !== 1 ||
+    valid.compositionMode !== "PRIMARY_WITH_BACKGROUND"
+  ) {
+    throw new Error("Valid first response should not trigger repair");
+  }
+}
+
+Promise.all([
+  testVisualBriefNodePrecondition(),
+  testVisualBriefRepairFlow(),
+])
   .then(() => {
     const evaluation = parseCandidateEvaluation({
       candidateId: "candidate-1",

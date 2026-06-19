@@ -1,6 +1,10 @@
 import { GeneratedCandidate } from "./contracts";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { SqliteSaver } from "@langchain/langgraph-checkpoint-sqlite";
 import { buildPipeline } from "./pipeline";
+import { postReferenceRequestNode } from "./nodes/referenceGateway";
 import {
   applyCandidateDecision,
   applyFinalApprovalDecision,
@@ -9,6 +13,8 @@ import {
 } from "./nodes/slackGateway";
 import { publishNode } from "./nodes/publish";
 import { PipelineState } from "./state";
+import { ReferenceCoordinator } from "../references/coordinator";
+import { ReferenceStore } from "../references/store";
 
 const evaluation = {
   candidateId: "candidate-1",
@@ -83,6 +89,23 @@ function state(
       referenceWarning: null,
     },
     referenceRequests: [],
+    referenceCandidates: [
+      {
+        id: "reference-candidate-1",
+        requestId: "reference-1",
+        person: "Marcus Rashford",
+        imageUrl: "https://ichef.bbci.co.uk/images/rashford.jpg",
+        sourcePageUrl: "https://example.com/source-page",
+        origin: "BRAVE_OFFICIAL",
+        entityId: "Q123",
+        evidenceSignalCount: 2,
+        faceSimilarity: 98,
+        verificationAnchorUrl: "https://commons.wikimedia.org/rashford.jpg",
+        rank: 1,
+        status: "APPROVED",
+        discoveredAt: "2026-06-13T12:00:00.000Z",
+      },
+    ],
     referenceApprovals: [
       {
         requestId: "reference-1",
@@ -148,9 +171,13 @@ async function testSeparatedSlackStages(): Promise<void> {
   const finalPayload = JSON.stringify(posts[1]);
   if (
     !finalPayload.includes(selectedCandidate.publicUrl) ||
-    finalPayload.includes("private/reference-1")
+    finalPayload.includes("private/reference-1") ||
+    finalPayload.includes("ichef.bbci.co.uk") ||
+    finalPayload.includes("man-utd-pipeline/references/")
   ) {
-    throw new Error("Final card must use the public candidate and hide private references");
+    throw new Error(
+      "Final card must use only the generated public candidate"
+    );
   }
 }
 
@@ -205,10 +232,89 @@ async function testRegenerationFallback(): Promise<void> {
   }
 }
 
+async function testReferenceDiscoveryGateway(): Promise<void> {
+  const tempDir = mkdtempSync(join(tmpdir(), "red-devils-gateway-"));
+  const store = new ReferenceStore(join(tempDir, "references.db"));
+  try {
+    const coordinator = new ReferenceCoordinator(store);
+    const posts: Array<Record<string, unknown>> = [];
+    const result = await postReferenceRequestNode(state(), {
+      coordinator,
+      discover: async ({ requestId, person }) => [
+        {
+          id: `candidate-${person}`,
+          requestId,
+          person,
+          imageUrl: "https://ichef.bbci.co.uk/images/player.jpg",
+          sourcePageUrl:
+            "https://www.bbc.com/sport/football/articles/example",
+          origin: "BRAVE_OFFICIAL",
+          entityId: "Q123",
+          evidenceSignalCount: 2,
+          faceSimilarity: 98,
+          verificationAnchorUrl: "https://commons.wikimedia.org/player.jpg",
+          rank: 1,
+          status: "AVAILABLE",
+          discoveredAt: "2026-06-13T12:00:00.000Z",
+        },
+      ],
+      postMessage: async (message) => {
+        posts.push(message);
+        return { ts: "slack-thread-1" };
+      },
+    });
+
+    if (
+      result.referenceCandidates?.length !== 1 ||
+      result.referenceRequests?.[0]?.status !== "AWAITING_DECISION" ||
+      !JSON.stringify(posts[0]).includes(state().draftCaption ?? "")
+    ) {
+      throw new Error(
+        "Gateway should discover references and post the completed caption"
+      );
+    }
+    if (
+      coordinator.requestsForRun("thread-123")[0]?.threadTs !==
+      "slack-thread-1"
+    ) {
+      throw new Error("Gateway should persist the Slack thread timestamp");
+    }
+
+    const restartState = state({ runId: "thread-restart" });
+    coordinator.createRequests(
+      restartState.runId,
+      restartState.runId,
+      restartState.visualBrief as NonNullable<PipelineState["visualBrief"]>
+    );
+    const restartPosts: Array<Record<string, unknown>> = [];
+    const restartResult = await postReferenceRequestNode(restartState, {
+      coordinator,
+      discover: async () => [],
+      postMessage: async (message) => {
+        restartPosts.push(message);
+        return { ts: "slack-thread-restart" };
+      },
+    });
+    if (
+      restartPosts.length !== 0 ||
+      restartResult.visualBrief?.compositionMode !== "CONCEPTUAL" ||
+      coordinator.requestsForRun(restartState.runId)[0]?.status !== "REJECTED"
+    ) {
+      throw new Error(
+        "Missing verified primary must fall back without posting an empty card"
+      );
+    }
+  } finally {
+    store.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
 Promise.all([
   testSeparatedSlackStages(),
   testFinalApprovalControlsMeta(),
   testRegenerationFallback(),
+  testReferenceDiscoveryGateway(),
 ])
   .then(() => {
     buildPipeline(SqliteSaver.fromConnString(":memory:"));

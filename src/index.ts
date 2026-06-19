@@ -26,7 +26,6 @@ const WEBHOOK_PORT = parseInt(process.env.WEBHOOK_PORT ?? "4242", 10);
 app.listen(WEBHOOK_PORT, () => {
   console.log(`[webhook] Express listening on http://localhost:${WEBHOOK_PORT}`);
   console.log(`[webhook] POST /slack/actions — Slack interactive handler`);
-  console.log(`[webhook] POST /slack/events — Slack Events API handler`);
 });
 
 const referenceCoordinator = getReferenceCoordinator();

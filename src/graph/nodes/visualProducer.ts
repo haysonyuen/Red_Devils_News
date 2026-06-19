@@ -449,10 +449,11 @@ function requestsEmbeddedTextOrBranding(value: string): boolean {
   );
 }
 
-export function validateVisualBriefAgainstInput(
+export function collectVisualBriefIssues(
   brief: VisualBrief,
   input: VisualBriefInput
-): void {
+): string[] {
+  const issues: string[] = [];
   const suppliedCharacters = new Set(
     input.story.mainCharacters.map(normalizedText)
   );
@@ -463,7 +464,7 @@ export function validateVisualBriefAgainstInput(
 
   for (const person of cast) {
     if (!suppliedCharacters.has(normalizedText(person))) {
-      throw new Error(`Visual brief invented a cast member: ${person}`);
+      issues.push(`Visual brief invented a cast member: ${person}`);
     }
   }
 
@@ -471,13 +472,17 @@ export function validateVisualBriefAgainstInput(
     brief.generationPromptTemplate,
     brief.conceptualFallbackPrompt,
   ]) {
-    assertVisualRequestAllowed(
-      input.story.storyStatus,
-      prompt,
-      input.forbiddenImplications
-    );
+    try {
+      assertVisualRequestAllowed(
+        input.story.storyStatus,
+        prompt,
+        input.forbiddenImplications
+      );
+    } catch (error) {
+      issues.push(error instanceof Error ? error.message : String(error));
+    }
     if (requestsEmbeddedTextOrBranding(prompt)) {
-      throw new Error("Visual brief cannot request embedded text or branding");
+      issues.push("Visual brief cannot request embedded text or branding");
     }
   }
 
@@ -487,18 +492,83 @@ export function validateVisualBriefAgainstInput(
         normalizedText(person)
       )
     ) {
-      throw new Error(
+      issues.push(
         "Conceptual fallback cannot depict a recognizable supplied person"
       );
     }
   }
+
+  if (
+    JSON.stringify(brief.forbiddenImplications) !==
+    JSON.stringify(input.forbiddenImplications)
+  ) {
+    issues.push("Visual brief must copy forbidden implications exactly");
+  }
+
+  return [...new Set(issues)];
+}
+
+export function validateVisualBriefAgainstInput(
+  brief: VisualBrief,
+  input: VisualBriefInput
+): void {
+  const issues = collectVisualBriefIssues(brief, input);
+  if (issues.length > 0) {
+    throw new Error(issues.join("; "));
+  }
+}
+
+type VisualBriefJsonCaller = typeof callLlmJson;
+
+interface CreateVisualBriefDependencies {
+  callJson?: VisualBriefJsonCaller;
+}
+
+function parseAndValidateVisualBrief(
+  value: unknown,
+  input: VisualBriefInput
+): { brief: VisualBrief | null; issues: string[] } {
+  try {
+    const brief = parseVisualBrief(value);
+    const issues = collectVisualBriefIssues(brief, input);
+    return { brief: issues.length === 0 ? brief : null, issues };
+  } catch (error) {
+    return {
+      brief: null,
+      issues: [error instanceof Error ? error.message : String(error)],
+    };
+  }
+}
+
+function safeConceptualBrief(input: VisualBriefInput): VisualBrief {
+  const prompt =
+    "An empty football tunnel opening onto a floodlit pitch, with a ball resting at a symbolic crossroads to express uncertainty and anticipation; no people, text, logos, crests, badges, or watermarks";
+  return {
+    storyHook: input.story.primaryStory,
+    emotionalGoal: "Measured anticipation",
+    primaryCharacter: null,
+    secondaryCharacters: [],
+    compositionMode: "CONCEPTUAL",
+    requiredSignals: [
+      "Empty football setting",
+      "Visible symbolic crossroads",
+    ],
+    forbiddenImplications: [...input.forbiddenImplications],
+    referenceRequirements: [],
+    searchInstructions: ["No identity reference required"],
+    generationPromptTemplate: prompt,
+    conceptualFallbackPrompt: prompt,
+    referenceWarning: null,
+  };
 }
 
 export async function createVisualBrief(
-  state: PipelineState
+  state: PipelineState,
+  dependencies: CreateVisualBriefDependencies = {}
 ): Promise<VisualBrief> {
   const input = prepareVisualBriefInput(state);
-  const response = await callLlmJson(
+  const callJson = dependencies.callJson ?? callLlmJson;
+  const response = await callJson(
     loadPrompt("visual-producer.v1.md"),
     JSON.stringify(input),
     {
@@ -507,17 +577,35 @@ export async function createVisualBrief(
       schema: VISUAL_BRIEF_SCHEMA,
     }
   );
-  const brief = parseVisualBrief(response);
+  const initial = parseAndValidateVisualBrief(response, input);
+  if (initial.brief) return initial.brief;
 
-  if (
-    JSON.stringify(brief.forbiddenImplications) !==
-    JSON.stringify(input.forbiddenImplications)
-  ) {
-    throw new Error("Visual brief must copy forbidden implications exactly");
+  try {
+    const repairedResponse = await callJson(
+      loadPrompt("visual-producer.v1.md"),
+      JSON.stringify({
+        phase: "VISUAL_BRIEF_REPAIR",
+        input,
+        originalOutput: response,
+        validationIssues: initial.issues,
+      }),
+      {
+        model: process.env.LLM_VISUAL_PRODUCER_MODEL,
+        schemaName: "visual_brief_repair",
+        schema: VISUAL_BRIEF_SCHEMA,
+      }
+    );
+    const repaired = parseAndValidateVisualBrief(repairedResponse, input);
+    if (repaired.brief) return repaired.brief;
+    console.warn(
+      `[visualProducer] Repair remained invalid: ${repaired.issues.join("; ")}`
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[visualProducer] Repair call failed: ${message}`);
   }
-  validateVisualBriefAgainstInput(brief, input);
 
-  return brief;
+  return safeConceptualBrief(input);
 }
 
 export async function createGenerationRequest(
