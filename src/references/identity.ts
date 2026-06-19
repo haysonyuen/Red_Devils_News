@@ -3,6 +3,8 @@ import axios from "axios";
 const WIKIDATA_API = "https://www.wikidata.org/w/api.php";
 const WIKIDATA_ENTITY_DATA =
   "https://www.wikidata.org/wiki/Special:EntityData";
+const WIKIMEDIA_USER_AGENT =
+  "RedDevilsNews/1.0 (https://github.com/haysonyuen/Red_Devils_News; contact via GitHub)";
 
 export interface IdentitySearchResult {
   id: string;
@@ -23,6 +25,16 @@ export interface PersonIdentity {
 export interface IdentityDependencies {
   search: (name: string) => Promise<IdentitySearchResult[]>;
   loadEntity: (entityId: string) => Promise<PersonIdentity | null>;
+}
+
+export function wikimediaRequestConfig(): {
+  headers: { "User-Agent": string };
+  timeout: number;
+} {
+  return {
+    headers: { "User-Agent": WIKIMEDIA_USER_AGENT },
+    timeout: 10_000,
+  };
 }
 
 type WikidataValue = {
@@ -87,7 +99,7 @@ function hasEnded(statement: WikidataStatement): boolean {
 async function fetchEntity(entityId: string): Promise<WikidataEntity | null> {
   const response = await axios.get<{ entities?: Record<string, WikidataEntity> }>(
     `${WIKIDATA_ENTITY_DATA}/${encodeURIComponent(entityId)}.json`,
-    { timeout: 10_000 }
+    wikimediaRequestConfig()
   );
   return response.data.entities?.[entityId] ?? null;
 }
@@ -101,6 +113,7 @@ async function defaultSearch(name: string): Promise<IdentitySearchResult[]> {
       description?: string;
     }>;
   }>(WIKIDATA_API, {
+    ...wikimediaRequestConfig(),
     params: {
       action: "wbsearchentities",
       search: name,
@@ -110,7 +123,6 @@ async function defaultSearch(name: string): Promise<IdentitySearchResult[]> {
       limit: 10,
       type: "item",
     },
-    timeout: 10_000,
   });
   return (response.data.search ?? []).map((result) => ({
     id: result.id,

@@ -5,6 +5,8 @@ import {
 import axios from "axios";
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const REFERENCE_IMAGE_USER_AGENT =
+  "RedDevilsNews/1.0 (https://github.com/haysonyuen/Red_Devils_News; contact via GitHub)";
 
 export interface FaceComparisonResult {
   sourceFaceDetected: boolean;
@@ -33,6 +35,23 @@ export interface FaceVerificationDependencies {
   ) => Promise<FaceComparisonResult>;
 }
 
+export function referenceImageRequestConfig(): {
+  headers: { "User-Agent": string; Accept: string };
+  timeout: number;
+  maxContentLength: number;
+  maxBodyLength: number;
+} {
+  return {
+    headers: {
+      "User-Agent": REFERENCE_IMAGE_USER_AGENT,
+      Accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+    },
+    timeout: 10_000,
+    maxContentLength: MAX_IMAGE_BYTES,
+    maxBodyLength: MAX_IMAGE_BYTES,
+  };
+}
+
 function thresholdValue(value?: number): number {
   const configured =
     value ??
@@ -50,9 +69,7 @@ async function defaultDownloadImage(urlValue: string): Promise<Buffer> {
   }
   const response = await axios.get<ArrayBuffer>(url.toString(), {
     responseType: "arraybuffer",
-    timeout: 10_000,
-    maxContentLength: MAX_IMAGE_BYTES,
-    maxBodyLength: MAX_IMAGE_BYTES,
+    ...referenceImageRequestConfig(),
   });
   const bytes = Buffer.from(response.data);
   if (bytes.length === 0 || bytes.length > MAX_IMAGE_BYTES) {

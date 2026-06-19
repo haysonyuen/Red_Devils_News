@@ -57,6 +57,43 @@ async function run(): Promise<void> {
     throw new Error("Brave discovery must query no more than five domains");
   }
 
+  const relevanceCalls: string[] = [];
+  const relevant = await searchOfficialPlayerImages(
+    {
+      canonicalName: "Marcus Rashford",
+      officialDomains: ["avfc.co.uk", "manutd.com"],
+    },
+    {
+      searchImages: async (query) => {
+        relevanceCalls.push(query);
+        if (query.includes("avfc.co.uk")) {
+          return Array.from({ length: 10 }, (_value, index) => ({
+            imageUrl: `https://cdn.avfc.co.uk/digne-${index}.jpg`,
+            sourcePageUrl: "https://www.avfc.co.uk/players/lucasdigne1",
+            title: "Player images",
+          }));
+        }
+        return [
+          {
+            imageUrl: "https://cdn.manutd.com/rashford.jpg",
+            sourcePageUrl:
+              "https://www.manutd.com/en/teams/mens-team/marcus-rashford",
+            title: "IMAGE - Marcus Rashford - Square",
+          },
+        ];
+      },
+    }
+  );
+  if (
+    relevanceCalls.length !== 2 ||
+    relevant.length !== 1 ||
+    !relevant[0].sourcePageUrl.includes("marcus-rashford")
+  ) {
+    throw new Error(
+      "Irrelevant first-domain results must not exhaust the search budget"
+    );
+  }
+
   const many = await searchOfficialPlayerImages(
     {
       canonicalName: "Player One",
@@ -71,8 +108,8 @@ async function run(): Promise<void> {
         })),
     }
   );
-  if (many.length !== 10) {
-    throw new Error("Brave discovery must retain no more than ten raw results");
+  if (many.length > 2) {
+    throw new Error("Brave discovery must retain at most two results per domain");
   }
 
   const offDomain = await searchOfficialPlayerImages(

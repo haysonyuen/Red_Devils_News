@@ -1,9 +1,11 @@
 import axios from "axios";
+import { normalizePersonName } from "./identity";
 
 const BRAVE_IMAGE_SEARCH =
   "https://api.search.brave.com/res/v1/images/search";
 const MAX_DOMAINS = 5;
 const MAX_RESULTS = 10;
+const MAX_RESULTS_PER_DOMAIN = 2;
 
 export interface BraveImageResult {
   imageUrl: string;
@@ -52,6 +54,23 @@ function belongsToDomain(urlValue: string, domain: string): boolean {
   try {
     const hostname = new URL(urlValue).hostname.toLocaleLowerCase();
     return hostname === domain || hostname.endsWith(`.${domain}`);
+  } catch {
+    return false;
+  }
+}
+
+function isRelevantResult(
+  result: BraveImageResult,
+  canonicalName: string
+): boolean {
+  const requested = normalizePersonName(canonicalName);
+  try {
+    const sourcePath = decodeURIComponent(
+      new URL(result.sourcePageUrl).pathname
+    );
+    return [result.title, sourcePath].some((value) =>
+      ` ${normalizePersonName(value)} `.includes(` ${requested} `)
+    );
   } catch {
     return false;
   }
@@ -120,14 +139,21 @@ export async function searchOfficialPlayerImages(
     if (results.length >= MAX_RESULTS) break;
     const query = `"${input.canonicalName}" site:${domain}`;
     const found = await searchImages(query, MAX_RESULTS - results.length);
+    let addedForDomain = 0;
     for (const result of found) {
-      if (results.length >= MAX_RESULTS) break;
+      if (
+        results.length >= MAX_RESULTS ||
+        addedForDomain >= MAX_RESULTS_PER_DOMAIN
+      ) {
+        break;
+      }
       const imageUrl = normalizedHttpUrl(result.imageUrl);
       const sourcePageUrl = normalizedHttpUrl(result.sourcePageUrl);
       if (
         !imageUrl ||
         !sourcePageUrl ||
-        !belongsToDomain(sourcePageUrl, domain)
+        !belongsToDomain(sourcePageUrl, domain) ||
+        !isRelevantResult(result, input.canonicalName)
       ) {
         continue;
       }
@@ -139,6 +165,7 @@ export async function searchOfficialPlayerImages(
         sourcePageUrl,
         title: result.title,
       });
+      addedForDomain += 1;
     }
   }
 

@@ -1,5 +1,6 @@
 import {
   FaceVerificationDependencies,
+  referenceImageRequestConfig,
   verifyCandidateFace,
 } from "./faceVerification";
 
@@ -23,6 +24,14 @@ function dependencies(
 }
 
 async function run(): Promise<void> {
+  const requestConfig = referenceImageRequestConfig();
+  if (
+    !requestConfig.headers["User-Agent"].includes("RedDevilsNews") ||
+    !requestConfig.headers.Accept.includes("image")
+  ) {
+    throw new Error("Reference image downloads require identifying image headers");
+  }
+
   const accepted = await verifyCandidateFace(
     input,
     dependencies({

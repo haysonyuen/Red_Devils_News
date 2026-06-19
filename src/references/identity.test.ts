@@ -2,6 +2,7 @@ import {
   IdentityDependencies,
   IdentitySearchResult,
   PersonIdentity,
+  wikimediaRequestConfig,
   resolvePersonIdentity,
 } from "./identity";
 
@@ -33,6 +34,14 @@ function dependencies(
 }
 
 async function run(): Promise<void> {
+  const requestConfig = wikimediaRequestConfig();
+  if (
+    !requestConfig.headers["User-Agent"].includes("RedDevilsNews") ||
+    !requestConfig.headers["User-Agent"].includes("github.com/haysonyuen")
+  ) {
+    throw new Error("Wikimedia requests require an identifying User-Agent");
+  }
+
   const exact = await resolvePersonIdentity(
     "Mateus Fernandes",
     dependencies([mateusSearch], { Q123: mateusIdentity })
