@@ -104,6 +104,7 @@ npm run dev:now
 | `SLACK_CHANNEL_ID` | Private channel for approval cards |
 | `REFERENCE_TIMEOUT_MINUTES` | Reference collection deadline; defaults to 30 |
 | `REFERENCE_DB_PATH` | Persistent reference workflow SQLite path |
+| `DEV_FIXTURE_ARTICLE_URL` | Dev-only allowlisted article URL that bypasses RSS ingestion |
 | `BRAVE_SEARCH_API_KEY` | Brave Image Search key for official-domain reference discovery |
 | `AWS_REGION` | AWS Rekognition region; defaults to `us-east-1` |
 | `AWS_ACCESS_KEY_ID` | Local AWS credential; prefer an IAM role or AWS profile outside local development |
@@ -115,6 +116,11 @@ npm run dev:now
 ## Source → Allowlist / Blocklist
 
 The active ingestion feed currently supplies **BBC Sport** articles. The existing source policy still recognizes David Ornstein, Fabrizio Romano, The Athletic, BBC Sport, and Simon Stone for future direct feeds.
+
+For local demos when RSS returns no stories, set `DEV_FIXTURE_ARTICLE_URL` to a
+single allowlisted article URL, then run `npm run dev:now`. The fixture still
+passes through the normal allowlist/blocklist and scraper; leave it blank for
+scheduled production runs.
 
 **Blocked:** The Sun · Daily Mail · Mirror · BILD
 

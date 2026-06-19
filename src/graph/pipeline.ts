@@ -122,7 +122,7 @@ function routeAfterApproval(
 // ── Build and export the compiled graph ──────────────────────────────────────
 export function buildPipeline(checkpointer: SqliteSaver) {
   const graph = new StateGraph(PipelineStateAnnotation)
-    .addNode("ingest", ingestNode)
+    .addNode("ingest", (state) => ingestNode(state))
     .addNode("scout", scoutNode)
     .addNode("producer", producerNode)
     .addNode("factChecker", factCheckerNode)

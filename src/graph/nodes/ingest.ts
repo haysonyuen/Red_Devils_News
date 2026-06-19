@@ -4,9 +4,38 @@ import { PipelineState, SearchResult, ArticleContent } from "../state";
 import { isAllowlisted, isBlocklisted } from "../../mcp/server";
 import { fetchManUtdNews } from "../../ingestion/bbcRss";
 
+interface IngestDependencies {
+  fetchNews: () => Promise<SearchResult[]>;
+  fetchHtml: (url: string) => Promise<string>;
+  fixtureArticleUrl: string | null;
+}
+
+function fixtureHit(url: string): SearchResult {
+  return {
+    url,
+    title: "Dev fixture article",
+    source: "BBC Sport",
+    publishedAt: new Date().toISOString(),
+  };
+}
+
+async function defaultFetchHtml(url: string): Promise<string> {
+  const { data: html } = await axios.get(url, {
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (compatible; ManUtdPipelineBot/1.0)",
+    },
+    timeout: 15_000,
+  });
+  return html;
+}
+
 // ── Scrape article with Cheerio ───────────────────────────────────────────────
 
-async function scrapeArticle(hit: SearchResult): Promise<ArticleContent | null> {
+async function scrapeArticle(
+  hit: SearchResult,
+  fetchHtml: (url: string) => Promise<string>
+): Promise<ArticleContent | null> {
   if (isBlocklisted(hit.url)) {
     console.warn(`[ingest] BLOCKED: ${hit.url}`);
     return null;
@@ -17,13 +46,7 @@ async function scrapeArticle(hit: SearchResult): Promise<ArticleContent | null> 
   }
 
   try {
-    const { data: html } = await axios.get(hit.url, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (compatible; ManUtdPipelineBot/1.0)",
-      },
-      timeout: 15_000,
-    });
+    const html = await fetchHtml(hit.url);
 
     const $ = cheerio.load(html);
     $("script, style, nav, header, footer, aside, .ad, .advertisement").remove();
@@ -56,15 +79,26 @@ async function scrapeArticle(hit: SearchResult): Promise<ArticleContent | null> 
 // ── Node ──────────────────────────────────────────────────────────────────────
 
 export async function ingestNode(
-  state: PipelineState
+  state: PipelineState,
+  dependencies: Partial<IngestDependencies> = {}
 ): Promise<Partial<PipelineState>> {
-  console.log(`[ingest] Searching for Man Utd news…`);
+  const fetchNews = dependencies.fetchNews ?? fetchManUtdNews;
+  const fetchHtml = dependencies.fetchHtml ?? defaultFetchHtml;
+  const fixtureArticleUrl =
+    dependencies.fixtureArticleUrl ?? process.env.DEV_FIXTURE_ARTICLE_URL ?? null;
+  console.log(
+    fixtureArticleUrl
+      ? `[ingest] Using dev fixture article…`
+      : `[ingest] Searching for Man Utd news…`
+  );
 
   let rawSearchHits: SearchResult[] = [];
   const errorLog: string[] = [];
 
   try {
-    rawSearchHits = await fetchManUtdNews();
+    rawSearchHits = fixtureArticleUrl
+      ? [fixtureHit(fixtureArticleUrl)]
+      : await fetchNews();
     console.log(`[ingest] ${rawSearchHits.length} raw hit(s) returned`);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -74,7 +108,9 @@ export async function ingestNode(
   }
 
   // Scrape all hits concurrently; filter nulls
-  const scraped = await Promise.all(rawSearchHits.map(scrapeArticle));
+  const scraped = await Promise.all(
+    rawSearchHits.map((hit) => scrapeArticle(hit, fetchHtml))
+  );
   const filteredArticles: ArticleContent[] = scraped.filter(
     (a): a is ArticleContent => a !== null
   );

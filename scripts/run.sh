@@ -28,6 +28,7 @@ case "${1:-}" in
   test)
     node node_modules/typescript/bin/tsc
     node dist/ingestion/bbcRss.test.js
+    node dist/graph/nodes/ingest.test.js
     node dist/mcp/server.test.js
     node dist/graph/agents.test.js
     node dist/graph/editorial-contracts.test.js
